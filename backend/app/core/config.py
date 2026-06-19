@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Storage
     upload_dir: str = "storage/uploads"
     static_dir: str = "storage/static"
+    max_upload_size_mb: int = 50
+
+    # Database
+    database_url: str = "sqlite+aiosqlite:///storage/rag_pdf.db"
 
 
 settings = Settings()
