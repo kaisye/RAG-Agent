@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # nv-embedqa-e5-v5 is the recommended text embedding model on NIM free tier
     nvidia_embed_model: str = "nvidia/nv-embedqa-e5-v5"
     nvidia_embed_batch_size: int = 16
+    # Verify current model IDs at https://build.nvidia.com/models before use —
+    # multimodal embed models are deprecated frequently; fallback to caption if empty/unavailable
+    nvidia_multimodal_embed_model: str = ""
+    # Vision LLM for caption fallback (also used if multimodal embed model unavailable)
+    nvidia_vision_model: str = "meta/llama-3.2-90b-vision-instruct"
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_chat_model: str = "qwen2.5"
 
