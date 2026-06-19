@@ -5,7 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.database import init_db
+from app.models import document as _document_models  # noqa: F401 — registers ORM metadata
 from app.routers import health
+from app.routers import documents
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -14,6 +17,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    await init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,5 +42,6 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 
 app.include_router(health.router)
+app.include_router(documents.router)
 
 logger.info("Application started — %s", settings.app_name)
