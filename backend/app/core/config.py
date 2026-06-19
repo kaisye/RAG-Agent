@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Must match the embedding model's output dimension; 1024 for nv-embedqa-e5-v5
     qdrant_vector_size: int = 1024
 
+    # Retrieval
+    hybrid_search_enabled: bool = True   # set to false to use vector-only (ablation)
+    rrf_k: int = 60                      # RRF smoothing constant
+
     # Storage
     upload_dir: str = "storage/uploads"
     static_dir: str = "storage/static"

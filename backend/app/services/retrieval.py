@@ -160,3 +160,79 @@ def bm25_search(
         query[:60], document_id, top_k, len(results),
     )
     return results
+
+
+# ---------------------------------------------------------------------------
+# Hybrid search (RRF fusion of vector + BM25)
+# ---------------------------------------------------------------------------
+
+def _rrf_fusion(
+    vector_results: list[dict],
+    bm25_results: list[dict],
+    k: int,
+) -> list[tuple[str, float]]:
+    """
+    Reciprocal Rank Fusion over two ranked lists.
+
+    RRF score = Σ 1/(k + rank + 1) across all lists.
+    Uses only rank, not raw scores, so cosine and BM25 values need no normalisation.
+
+    Returns list of (chunk_id, rrf_score) sorted by descending score.
+    """
+    rrf: dict[str, float] = {}
+    for rank, result in enumerate(vector_results):
+        cid = result["chunk_id"]
+        rrf[cid] = rrf.get(cid, 0.0) + 1.0 / (k + rank + 1)
+    for rank, result in enumerate(bm25_results):
+        cid = result["chunk_id"]
+        rrf[cid] = rrf.get(cid, 0.0) + 1.0 / (k + rank + 1)
+    return sorted(rrf.items(), key=lambda x: x[1], reverse=True)
+
+
+def hybrid_search(
+    query: str,
+    document_id: str,
+    top_k: int = 20,
+) -> list[dict]:
+    """
+    Retrieve top-k candidates by fusing vector search and BM25 with RRF.
+
+    When settings.hybrid_search_enabled is False, falls back to vector_search
+    only — this lets the evaluation nhánh run ablation experiments by toggling
+    the HYBRID_SEARCH_ENABLED env var without changing code.
+
+    Args:
+        query:       User question or search string.
+        document_id: Restrict retrieval to a single document.
+        top_k:       Number of candidates to return (before reranking).
+
+    Returns:
+        List of result dicts (same shape as vector_search / bm25_search),
+        sorted by descending RRF score.
+    """
+    if not settings.hybrid_search_enabled:
+        logger.info("hybrid_search: disabled — falling back to vector_search only")
+        return vector_search(query, top_k=top_k, document_id=document_id)
+
+    # Retrieve a larger pool from each source so RRF has enough candidates
+    pool = top_k * 2
+    vec_results = vector_search(query, top_k=pool, document_id=document_id)
+    bm25_results = bm25_search(query, document_id=document_id, top_k=pool)
+
+    fused = _rrf_fusion(vec_results, bm25_results, k=settings.rrf_k)[:top_k]
+
+    # Build a lookup by chunk_id from both result lists to recover full payload
+    payload: dict[str, dict] = {r["chunk_id"]: r for r in vec_results}
+    payload.update({r["chunk_id"]: r for r in bm25_results})
+
+    results = [
+        {**payload[cid], "score": rrf_score}
+        for cid, rrf_score in fused
+        if cid in payload
+    ]
+
+    logger.info(
+        "hybrid_search: query=%r doc=%s top_k=%d → %d results (vec=%d bm25=%d)",
+        query[:60], document_id, top_k, len(results), len(vec_results), len(bm25_results),
+    )
+    return results
