@@ -110,11 +110,20 @@ def parse_pdf(pdf_path: str) -> list[dict]:
 
 
 def save_parsed_blocks(document_id: str, blocks: list[dict]) -> Path:
-    """Persist blocks as JSON for downstream pipeline steps."""
+    """
+    Persist blocks as JSON. Assigns a stable block_id to each block so that
+    downstream steps (image-extraction, semantic-chunking) can reference them.
+    """
     parsed_dir = Path(settings.static_dir).parent / "parsed"
     parsed_dir.mkdir(parents=True, exist_ok=True)
+
+    stamped = [
+        {**b, "block_id": f"{document_id}_block_{i:04d}"}
+        for i, b in enumerate(blocks)
+    ]
+
     out_path = parsed_dir / f"{document_id}.json"
-    out_path.write_text(json.dumps(blocks, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(stamped, ensure_ascii=False, indent=2), encoding="utf-8")
     return out_path
 
 

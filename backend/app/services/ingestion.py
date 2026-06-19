@@ -2,7 +2,8 @@ import logging
 
 from app.core.database import AsyncSessionLocal
 from app.models.document import Document
-from app.services.pdf_parser import parse_pdf, save_parsed_blocks
+from app.services.image_extractor import extract_images, save_image_metadata
+from app.services.pdf_parser import load_parsed_blocks, parse_pdf, save_parsed_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,17 @@ async def run_ingestion_pipeline(document_id: str, file_path: str) -> None:
         logger.info("pdf-parser done — %d blocks", len(blocks))
     except Exception:
         logger.exception("pdf-parser failed — document_id=%s", document_id)
+        await _set_status(document_id, "failed")
+        return
+
+    # Step 2: image-extraction
+    try:
+        stamped_blocks = load_parsed_blocks(document_id)   # now includes block_id
+        images = extract_images(document_id, file_path, stamped_blocks)
+        save_image_metadata(document_id, images)
+        logger.info("image-extraction done — %d images", len(images))
+    except Exception:
+        logger.exception("image-extraction failed — document_id=%s", document_id)
         await _set_status(document_id, "failed")
         return
 
