@@ -6,6 +6,7 @@ from app.services.chunker import chunk_blocks, load_chunks, save_chunks
 from app.services.embedding import embed_image, embed_texts
 from app.services.image_extractor import extract_images, load_image_metadata, save_image_metadata
 from app.services.pdf_parser import load_parsed_blocks, parse_pdf, save_parsed_blocks
+from app.services.vector_store import ensure_collection, upsert_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,18 @@ async def run_ingestion_pipeline(document_id: str, file_path: str) -> None:
         logger.info("multimodal-embedding done — %d images, dim=%d", len(images_meta), dim)
     except Exception:
         logger.exception("multimodal-embedding failed — document_id=%s", document_id)
+        await _set_status(document_id, "failed")
+        return
+
+    # Step 6: qdrant upsert
+    try:
+        ensure_collection()
+        final_chunks = load_chunks(document_id)
+        final_images = load_image_metadata(document_id)
+        total = upsert_chunks(final_chunks, final_images)
+        logger.info("qdrant upsert done — %d points", total)
+    except Exception:
+        logger.exception("qdrant upsert failed — document_id=%s", document_id)
         await _set_status(document_id, "failed")
         return
 

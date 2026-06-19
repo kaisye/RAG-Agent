@@ -27,7 +27,9 @@ class Settings(BaseSettings):
 
     # Qdrant
     qdrant_url: str = "http://localhost:6333"
-    qdrant_collection: str = "rag_pdf"
+    qdrant_collection: str = "rag_chunks"
+    # Must match the embedding model's output dimension; 1024 for nv-embedqa-e5-v5
+    qdrant_vector_size: int = 1024
 
     # Storage
     upload_dir: str = "storage/uploads"
