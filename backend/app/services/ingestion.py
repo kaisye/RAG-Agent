@@ -2,7 +2,8 @@ import logging
 
 from app.core.database import AsyncSessionLocal
 from app.models.document import Document
-from app.services.image_extractor import extract_images, save_image_metadata
+from app.services.chunker import chunk_blocks, save_chunks
+from app.services.image_extractor import extract_images, load_image_metadata, save_image_metadata
 from app.services.pdf_parser import load_parsed_blocks, parse_pdf, save_parsed_blocks
 
 logger = logging.getLogger(__name__)
@@ -32,12 +33,24 @@ async def run_ingestion_pipeline(document_id: str, file_path: str) -> None:
 
     # Step 2: image-extraction
     try:
-        stamped_blocks = load_parsed_blocks(document_id)   # now includes block_id
+        stamped_blocks = load_parsed_blocks(document_id)
         images = extract_images(document_id, file_path, stamped_blocks)
         save_image_metadata(document_id, images)
         logger.info("image-extraction done — %d images", len(images))
     except Exception:
         logger.exception("image-extraction failed — document_id=%s", document_id)
+        await _set_status(document_id, "failed")
+        return
+
+    # Step 3: semantic-chunking
+    await _set_status(document_id, "chunking")
+    try:
+        images_meta = load_image_metadata(document_id)
+        chunks = chunk_blocks(document_id, stamped_blocks, images_meta)
+        save_chunks(document_id, chunks)
+        logger.info("semantic-chunking done — %d chunks", len(chunks))
+    except Exception:
+        logger.exception("semantic-chunking failed — document_id=%s", document_id)
         await _set_status(document_id, "failed")
         return
 
