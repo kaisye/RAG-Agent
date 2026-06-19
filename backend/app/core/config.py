@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: str = "nvidia"
     nvidia_api_key: str = ""
-    # Verify the exact model ID on https://build.nvidia.com/models before use
+    # Verify the exact model IDs on https://build.nvidia.com/models before use
     nvidia_chat_model: str = "meta/llama-3.1-70b-instruct"
+    # nv-embedqa-e5-v5 is the recommended text embedding model on NIM free tier
+    nvidia_embed_model: str = "nvidia/nv-embedqa-e5-v5"
+    nvidia_embed_batch_size: int = 16
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_chat_model: str = "qwen2.5"
 
