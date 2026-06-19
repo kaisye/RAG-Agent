@@ -236,3 +236,94 @@ def hybrid_search(
         query[:60], document_id, top_k, len(results), len(vec_results), len(bm25_results),
     )
     return results
+
+
+# ---------------------------------------------------------------------------
+# Reranker — cross-encoder score for exact query-chunk relevance
+# ---------------------------------------------------------------------------
+
+# Module-level singleton: the CrossEncoder is expensive to load (~400 MB),
+# so we load it once per process and reuse it across all requests.
+_cross_encoder: "CrossEncoder | None" = None  # type: ignore[name-defined]
+
+
+def _get_cross_encoder():
+    global _cross_encoder
+    if _cross_encoder is None:
+        from sentence_transformers import CrossEncoder  # lazy import — avoids load at startup
+        _cross_encoder = CrossEncoder(settings.reranker_model)
+        logger.info("Loaded CrossEncoder model: %s", settings.reranker_model)
+    return _cross_encoder
+
+
+def rerank(
+    query: str,
+    candidates: list[dict],
+    top_k: int = 5,
+) -> list[dict]:
+    """
+    Re-score *candidates* using a local CrossEncoder and return the top-k.
+
+    CrossEncoder evaluates each (query, chunk) pair jointly — more accurate
+    than bi-encoder cosine similarity at the cost of being O(n) on candidates.
+    Call after hybrid_search with a bounded candidate pool (20–30) so latency
+    stays acceptable.
+
+    The returned dicts have the same shape as hybrid_search() results, with
+    'score' replaced by the CrossEncoder logit (higher = more relevant).
+    """
+    if not candidates:
+        return []
+
+    pairs = [(query, c["content"]) for c in candidates]
+    scores = _get_cross_encoder().predict(pairs)
+
+    ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)[:top_k]
+
+    results = [{**chunk, "score": float(score)} for chunk, score in ranked]
+
+    logger.info(
+        "rerank: query=%r candidates=%d → top_k=%d",
+        query[:60], len(candidates), len(results),
+    )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# retrieve() — main entry point for feature/chat
+# ---------------------------------------------------------------------------
+
+def retrieve(
+    query: str,
+    document_id: str,
+    top_k_final: int = 5,
+    hybrid_pool: int = 20,
+) -> list[dict]:
+    """
+    Full retrieval pipeline: hybrid_search → (optional) rerank.
+
+    Feature/chat calls this function exclusively — it never calls
+    vector_search / bm25_search / rerank directly.
+
+    Args:
+        query:        User question.
+        document_id:  Document to search within.
+        top_k_final:  Number of chunks to return after reranking.
+        hybrid_pool:  Candidates passed to reranker (before trimming to top_k_final).
+                      Ignored when reranker is disabled.
+
+    Returns:
+        List of up to top_k_final result dicts, sorted by relevance.
+
+    Ablation:
+        HYBRID_SEARCH_ENABLED=false  → vector-only, then rerank
+        RERANKER_ENABLED=false       → hybrid results, no rerank (BM25 order)
+        Both false                   → pure vector search, no rerank
+    """
+    candidates = hybrid_search(query, document_id=document_id, top_k=hybrid_pool)
+
+    if not settings.reranker_enabled:
+        logger.info("retrieve: reranker disabled — returning hybrid top-%d", top_k_final)
+        return candidates[:top_k_final]
+
+    return rerank(query, candidates, top_k=top_k_final)

@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # Retrieval
     hybrid_search_enabled: bool = True   # set to false to use vector-only (ablation)
     rrf_k: int = 60                      # RRF smoothing constant
+    reranker_enabled: bool = True        # set to false to skip rerank step (ablation)
+    reranker_model: str = "BAAI/bge-reranker-base"  # local CrossEncoder model
 
     # Storage
     upload_dir: str = "storage/uploads"
