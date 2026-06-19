@@ -2,7 +2,8 @@ import logging
 
 from app.core.database import AsyncSessionLocal
 from app.models.document import Document
-from app.services.chunker import chunk_blocks, save_chunks
+from app.services.chunker import chunk_blocks, load_chunks, save_chunks
+from app.services.embedding import embed_texts
 from app.services.image_extractor import extract_images, load_image_metadata, save_image_metadata
 from app.services.pdf_parser import load_parsed_blocks, parse_pdf, save_parsed_blocks
 
@@ -51,6 +52,22 @@ async def run_ingestion_pipeline(document_id: str, file_path: str) -> None:
         logger.info("semantic-chunking done — %d chunks", len(chunks))
     except Exception:
         logger.exception("semantic-chunking failed — document_id=%s", document_id)
+        await _set_status(document_id, "failed")
+        return
+
+    # Step 4: embedding-service
+    await _set_status(document_id, "embedding")
+    try:
+        chunks = load_chunks(document_id)
+        texts = [c["text"] for c in chunks]
+        vectors = embed_texts(texts, input_type="passage")
+        for chunk, vector in zip(chunks, vectors):
+            chunk["vector"] = vector
+        save_chunks(document_id, chunks)
+        dim = len(vectors[0]) if vectors else 0
+        logger.info("embedding done — %d vectors, dim=%d", len(vectors), dim)
+    except Exception:
+        logger.exception("embedding failed — document_id=%s", document_id)
         await _set_status(document_id, "failed")
         return
 
