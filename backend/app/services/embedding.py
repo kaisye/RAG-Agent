@@ -1,5 +1,7 @@
+import base64
 import logging
 import time
+from pathlib import Path
 from typing import Literal
 
 from openai import OpenAI
@@ -12,14 +14,16 @@ logger = logging.getLogger(__name__)
 
 def _get_embed_client() -> OpenAI:
     if not settings.nvidia_api_key:
-        raise ValueError(
-            "NVIDIA_API_KEY is not set. Add it to your .env file."
-        )
+        raise ValueError("NVIDIA_API_KEY is not set. Add it to your .env file.")
     return OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=settings.nvidia_api_key,
     )
 
+
+# ---------------------------------------------------------------------------
+# Text embedding
+# ---------------------------------------------------------------------------
 
 def embed_texts(
     texts: list[str],
@@ -55,13 +59,97 @@ def embed_texts(
             )
 
         response = call_with_retry(_call)
-        # API returns embeddings in the same order as input
         vectors = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
         all_vectors.extend(vectors)
 
-        # Small courtesy delay between batches to stay within rate limits
         if batch_idx < len(batches) - 1:
             time.sleep(0.5)
 
     logger.info("embed_texts: done — dimension=%d", len(all_vectors[0]) if all_vectors else 0)
     return all_vectors
+
+
+# ---------------------------------------------------------------------------
+# Image embedding (multimodal)
+# ---------------------------------------------------------------------------
+
+def _image_to_data_url(image_path: str) -> str:
+    """Read an image file and return a base64 data URL."""
+    path = Path(image_path)
+    ext = path.suffix.lstrip(".").lower()
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}.get(ext, "image/png")
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    return f"data:{mime};base64,{b64}"
+
+
+def _embed_image_direct(client: OpenAI, data_url: str) -> list[float]:
+    """Call multimodal embedding model with modality='image'."""
+    response = call_with_retry(
+        lambda: client.embeddings.create(
+            input=[data_url],
+            model=settings.nvidia_multimodal_embed_model,
+            extra_body={"modality": "image"},
+        )
+    )
+    return response.data[0].embedding
+
+
+def _caption_then_embed(data_url: str) -> list[float]:
+    """
+    Fallback: generate a caption via vision LLM, then embed the caption as text.
+    Used when the multimodal embedding model is unavailable.
+    """
+    from openai import OpenAI as _OpenAI  # local import to avoid circular on module load
+
+    vision_client = _OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=settings.nvidia_api_key,
+    )
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this image concisely in one or two sentences for use as a search index entry."},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        }
+    ]
+    completion = call_with_retry(
+        lambda: vision_client.chat.completions.create(
+            model=settings.nvidia_vision_model,
+            messages=messages,
+            max_tokens=128,
+        )
+    )
+    caption = completion.choices[0].message.content.strip()
+    logger.info("caption fallback — generated: %s", caption[:80])
+    return embed_texts([caption], input_type="passage")[0]
+
+
+def embed_image(image_path: str) -> list[float]:
+    """
+    Embed a single image file and return a float vector.
+
+    Strategy:
+      1. Try the dedicated multimodal embedding model (modality='image').
+      2. On any error (model unavailable, quota exceeded, etc.), fall back to
+         generating a text caption via a vision LLM and embedding that caption.
+
+    The returned vector has the same dimension as text vectors so that images
+    and text chunks can coexist in the same Qdrant collection.
+    """
+    client = _get_embed_client()
+    data_url = _image_to_data_url(image_path)
+
+    if settings.nvidia_multimodal_embed_model:
+        try:
+            vector = _embed_image_direct(client, data_url)
+            logger.debug("embed_image: direct multimodal OK — %s dim=%d", image_path, len(vector))
+            return vector
+        except Exception as e:
+            logger.warning(
+                "embed_image: multimodal model failed (%s), switching to caption fallback", e
+            )
+
+    logger.info("embed_image: using caption fallback for %s", image_path)
+    return _caption_then_embed(data_url)

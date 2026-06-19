@@ -3,7 +3,7 @@ import logging
 from app.core.database import AsyncSessionLocal
 from app.models.document import Document
 from app.services.chunker import chunk_blocks, load_chunks, save_chunks
-from app.services.embedding import embed_texts
+from app.services.embedding import embed_image, embed_texts
 from app.services.image_extractor import extract_images, load_image_metadata, save_image_metadata
 from app.services.pdf_parser import load_parsed_blocks, parse_pdf, save_parsed_blocks
 
@@ -68,6 +68,20 @@ async def run_ingestion_pipeline(document_id: str, file_path: str) -> None:
         logger.info("embedding done — %d vectors, dim=%d", len(vectors), dim)
     except Exception:
         logger.exception("embedding failed — document_id=%s", document_id)
+        await _set_status(document_id, "failed")
+        return
+
+    # Step 5: multimodal-embedding (images)
+    try:
+        images_meta = load_image_metadata(document_id)
+        for img in images_meta:
+            img["vector"] = embed_image(img["file_path"])
+            img["type"] = "image"
+        save_image_metadata(document_id, images_meta)
+        dim = len(images_meta[0]["vector"]) if images_meta else 0
+        logger.info("multimodal-embedding done — %d images, dim=%d", len(images_meta), dim)
+    except Exception:
+        logger.exception("multimodal-embedding failed — document_id=%s", document_id)
         await _set_status(document_id, "failed")
         return
 
