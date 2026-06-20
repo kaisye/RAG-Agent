@@ -45,7 +45,7 @@ async def upload_document(
 
     background_tasks.add_task(run_ingestion_pipeline, document_id, str(file_path))
 
-    return {"document_id": document_id, "status": "uploaded"}
+    return {"id": document_id, "filename": file.filename, "status": "uploaded", "created_at": doc.created_at.isoformat()}
 
 
 @router.get("")
