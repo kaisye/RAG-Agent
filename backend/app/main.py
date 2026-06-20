@@ -9,6 +9,7 @@ from app.core.database import init_db
 from app.models import document as _document_models  # noqa: F401 — registers ORM metadata
 from app.routers import health
 from app.routers import documents
+from app.routers import chat
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -43,5 +44,6 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 app.include_router(health.router)
 app.include_router(documents.router)
+app.include_router(chat.router)
 
 logger.info("Application started — %s", settings.app_name)

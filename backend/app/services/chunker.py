@@ -8,9 +8,17 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_TARGET_TOKENS = 400   # mid-point of 300-500 range
-_MAX_TOKENS = 500
-_OVERLAP_RATIO = 0.12  # 12% overlap
+# Token budget measured in raw CHARACTERS (not whitespace words).
+#
+# Rationale: subword-token count ≈ len(text) / chars_per_token.
+#   English  ≈ 4 chars/token → 500 chars ≈ 125 tokens
+#   Vietnamese ≈ 1.5 chars/token → 500 chars ≈ 333 tokens  ← binding constraint
+#
+# 500 chars keeps Vietnamese chunks safely under the model's 512-token hard limit.
+# embed_texts() has a matching 600-char safety truncation as a second guard.
+_TARGET_TOKENS = 400   # chars
+_MAX_TOKENS = 500      # chars
+_OVERLAP_RATIO = 0.12
 
 
 def _ensure_nltk():
@@ -21,8 +29,14 @@ def _ensure_nltk():
 
 
 def _count_tokens(text: str) -> int:
-    """Whitespace-based token count — lightweight and consistent."""
-    return len(text.split())
+    """Raw character count — used as a language-agnostic proxy for subword tokens.
+
+    Vietnamese tokenizes at ~1.5 chars/subword, making word-count and even
+    chars/4 estimates dangerously optimistic.  Using raw char count and keeping
+    _MAX_TOKENS = 500 chars ensures chunks stay under 512 subword tokens for
+    any language the model supports.
+    """
+    return len(text)
 
 
 def _is_heading(text: str) -> bool:
@@ -124,6 +138,11 @@ def chunk_blocks(
         buf_tokens = 0
 
         for sent in window:
+            # Hard-truncate a sentence that alone exceeds the char budget.
+            # _MAX_TOKENS * 4 chars is the equiv character limit.
+            if len(sent["text"]) > _MAX_TOKENS:
+                truncated = sent["text"][:_MAX_TOKENS].rsplit(" ", 1)[0] or sent["text"][:_MAX_TOKENS]
+                sent = {**sent, "text": truncated}
             sent_tokens = _count_tokens(sent["text"])
 
             if buf_tokens + sent_tokens > _MAX_TOKENS and buf:

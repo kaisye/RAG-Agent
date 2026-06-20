@@ -38,6 +38,28 @@ def embed_texts(
     if not texts:
         return []
 
+    # Safety truncation against the model's 512 subword-token hard limit.
+    #
+    # Character-per-token ratios vary widely by language:
+    #   English academic  ≈ 4 chars/token
+    #   Vietnamese        ≈ 1.5 chars/token  ← drives this limit
+    #   Chinese/Japanese  ≈ 1–2 chars/token
+    #
+    # Worst-observed error: 960 tokens from a Vietnamese text ≤ 1400 chars
+    # (1400 / 960 ≈ 1.46 chars/token).  To stay safely under 512 tokens for
+    # any language: 512 × 1.4 chars/token ≈ 717 chars → use 600 chars.
+    _CHAR_LIMIT = 600
+    sanitized: list[str] = []
+    for t in texts:
+        if len(t) > _CHAR_LIMIT:
+            logger.warning(
+                "embed_texts: truncating text from %d to %d chars (multilingual safety)",
+                len(t), _CHAR_LIMIT,
+            )
+            t = t[:_CHAR_LIMIT].rsplit(" ", 1)[0] or t[:_CHAR_LIMIT]
+        sanitized.append(t)
+    texts = sanitized
+
     client = _get_embed_client()
     model = settings.nvidia_embed_model
     batch_size = settings.nvidia_embed_batch_size
