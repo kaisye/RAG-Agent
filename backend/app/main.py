@@ -1,8 +1,11 @@
 import logging
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.database import init_db
@@ -45,5 +48,11 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 app.include_router(health.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+
+# Serve extracted images as static files so frontend can display thumbnails.
+# URL pattern: /static/images/{document_id}/p{page}_{idx}.{ext}
+_images_dir = Path(settings.upload_dir).parent / "images"
+_images_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static/images", StaticFiles(directory=str(_images_dir)), name="static_images")
 
 logger.info("Application started — %s", settings.app_name)

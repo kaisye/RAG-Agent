@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     rrf_k: int = 60                      # RRF smoothing constant
     reranker_enabled: bool = True        # set to false to skip rerank step (ablation)
     reranker_model: str = "BAAI/bge-reranker-base"  # local CrossEncoder model
-    chat_supports_vision: bool = True    # include retrieved images as base64 in chat prompt
+    chat_supports_vision: bool = False   # set True only when using a vision-capable chat model
 
     # Storage
     upload_dir: str = "storage/uploads"
