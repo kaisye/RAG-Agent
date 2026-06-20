@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Message } from '../types'
+import { CitationChip } from './CitationChip'
 
 interface Props {
   messages: Message[]
@@ -17,17 +18,19 @@ export function MessageList({ messages, streaming }: Props) {
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {messages.length === 0 && (
         <div style={{ color: '#aaa', textAlign: 'center', marginTop: '40px', fontSize: '14px' }}>
-          Select a document and ask a question.
+          Chọn tài liệu và đặt câu hỏi.
         </div>
       )}
+
       {messages.map(msg => (
         <div
           key={msg.id}
           style={{
             alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-            maxWidth: '75%',
+            maxWidth: '78%',
           }}
         >
+          {/* Bubble */}
           <div
             style={{
               padding: '10px 14px',
@@ -35,18 +38,29 @@ export function MessageList({ messages, streaming }: Props) {
               background: msg.role === 'user' ? '#1976d2' : '#f1f3f4',
               color: msg.role === 'user' ? '#fff' : '#202124',
               fontSize: '14px',
-              lineHeight: '1.5',
+              lineHeight: '1.6',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}
           >
             {msg.content}
             {streaming && msg.role === 'assistant' && msg === messages[messages.length - 1] && (
-              <span style={{ opacity: 0.6, animation: 'blink 1s step-end infinite' }}>▌</span>
+              <span style={{ opacity: 0.5, animation: 'blink 1s step-end infinite' }}>▌</span>
             )}
           </div>
+
+          {/* Citations — shown below assistant bubble once available */}
+          {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', paddingLeft: '4px' }}>
+              <span style={{ fontSize: '11px', color: '#888', alignSelf: 'center' }}>Nguồn:</span>
+              {msg.citations.map((c, i) => (
+                <CitationChip key={i} citation={c} index={i} />
+              ))}
+            </div>
+          )}
         </div>
       ))}
+
       <div ref={bottomRef} />
     </div>
   )

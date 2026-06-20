@@ -33,6 +33,74 @@ class ChatRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Citation builder
+# ---------------------------------------------------------------------------
+
+_SNIPPET_LEN = 150   # max chars for a text snippet in a citation
+
+
+def _source_path_to_url(source_path: str) -> str:
+    """Convert a local storage path → a frontend-accessible static URL.
+
+    storage/images/{doc_id}/p{page}_{idx}.{ext}
+      →  /static/images/{doc_id}/p{page}_{idx}.{ext}
+    """
+    # Normalise separators, then strip everything up to and including "images/"
+    normalised = source_path.replace("\\", "/")
+    marker = "images/"
+    idx = normalised.find(marker)
+    if idx == -1:
+        return f"/static/images/{normalised}"
+    return f"/static/images/{normalised[idx + len(marker):]}"
+
+
+def _build_citations(context_chunks: list[dict]) -> list[dict]:
+    """Turn retrieve() results into structured citation objects.
+
+    Returns a list where each item is one of:
+      {"type": "text",  "document_id": ..., "page": ..., "snippet": "..."}
+      {"type": "image", "document_id": ..., "page": ..., "thumbnail_url": "..."}
+
+    Deduplication: text citations are keyed by (document_id, page); image
+    citations are keyed by source_path so the same image doesn't appear twice.
+    """
+    seen_text: set[tuple] = set()
+    seen_image: set[str] = set()
+    citations: list[dict] = []
+
+    for chunk in context_chunks:
+        doc_id = chunk.get("document_id", "")
+        page = chunk.get("page", 0)
+
+        if chunk.get("type") == "image":
+            src = chunk.get("source_path") or ""
+            if not src or src in seen_image:
+                continue
+            seen_image.add(src)
+            citations.append({
+                "type": "image",
+                "document_id": doc_id,
+                "page": page,
+                "thumbnail_url": _source_path_to_url(src),
+            })
+        else:
+            key = (doc_id, page)
+            if key in seen_text:
+                continue
+            seen_text.add(key)
+            content = chunk.get("content", "")
+            snippet = content[:_SNIPPET_LEN] + ("…" if len(content) > _SNIPPET_LEN else "")
+            citations.append({
+                "type": "text",
+                "document_id": doc_id,
+                "page": page,
+                "snippet": snippet,
+            })
+
+    return citations
+
+
+# ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
 
@@ -114,6 +182,11 @@ async def _sse_stream(
     history: list[HistoryMessage],
     document_id: str,
 ) -> AsyncGenerator[str, None]:
+    """SSE event sequence:
+        data: {"delta": "<token>"}   — one per LLM token
+        data: {"citations": [...]}   — once, after all tokens
+        data: [DONE]
+    """
     try:
         context = retrieve(query, document_id=document_id)
         messages = _build_messages(query, history, context)
@@ -127,6 +200,10 @@ async def _sse_stream(
             if token:
                 payload = json.dumps({"delta": token}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
+
+        # Send citations after the full answer is streamed
+        citations = _build_citations(context)
+        yield f"data: {json.dumps({'citations': citations}, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 
