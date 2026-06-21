@@ -13,6 +13,7 @@ from app.models import document as _document_models  # noqa: F401 — registers 
 from app.routers import health
 from app.routers import documents
 from app.routers import chat
+from app.services.vector_store import ensure_collection
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -26,6 +27,8 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 @app.on_event("startup")
 async def on_startup() -> None:
     await init_db()
+    ensure_collection()
+    logger.info("Qdrant collection '%s' ready", settings.qdrant_collection)
 
 app.add_middleware(
     CORSMiddleware,

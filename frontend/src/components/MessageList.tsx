@@ -5,9 +5,10 @@ import { CitationChip } from './CitationChip'
 interface Props {
   messages: Message[]
   streaming: boolean
+  onJumpToPage: (page: number) => void
 }
 
-export function MessageList({ messages, streaming }: Props) {
+export function MessageList({ messages, streaming, onJumpToPage }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -27,7 +28,7 @@ export function MessageList({ messages, streaming }: Props) {
           key={msg.id}
           style={{
             alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-            maxWidth: '78%',
+            maxWidth: '88%',
           }}
         >
           {/* Bubble */}
@@ -49,12 +50,12 @@ export function MessageList({ messages, streaming }: Props) {
             )}
           </div>
 
-          {/* Citations — shown below assistant bubble once available */}
+          {/* Citations */}
           {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', paddingLeft: '4px' }}>
               <span style={{ fontSize: '11px', color: '#888', alignSelf: 'center' }}>Nguồn:</span>
               {msg.citations.map((c, i) => (
-                <CitationChip key={i} citation={c} index={i} />
+                <CitationChip key={i} citation={c} onJumpToPage={onJumpToPage} />
               ))}
             </div>
           )}
