@@ -3,21 +3,28 @@ import type { Citation } from '../types'
 
 interface Props {
   citation: Citation
-  index: number
+  onJumpToPage: (page: number) => void  // receives 1-based page
 }
 
-export function CitationChip({ citation, index }: Props) {
+export function CitationChip({ citation, onJumpToPage }: Props) {
   const [imgError, setImgError] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
 
-  const label = `Trang ${citation.page + 1}`   // page is 0-indexed internally
+  // citation.page is 0-indexed; display and jump use 1-based
+  const page1 = citation.page + 1
+  const label = `Trang ${page1}`
+
+  function handleClick() {
+    onJumpToPage(page1)
+    if (citation.type === 'image') setShowPreview(v => !v)
+  }
 
   if (citation.type === 'image') {
     return (
       <div style={{ position: 'relative', display: 'inline-block' }}>
         <button
-          onClick={() => setShowPreview(v => !v)}
-          title={`Ảnh — ${label}`}
+          onClick={handleClick}
+          title={`Ảnh — ${label} (click để xem)`}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -75,9 +82,10 @@ export function CitationChip({ citation, index }: Props) {
     )
   }
 
-  // Text citation
+  // Text citation — click jumps to page, no preview popup
   return (
-    <span
+    <button
+      onClick={() => onJumpToPage(page1)}
       title={citation.snippet}
       style={{
         display: 'inline-flex',
@@ -89,10 +97,11 @@ export function CitationChip({ citation, index }: Props) {
         background: '#e8f5e9',
         color: '#2e7d32',
         fontSize: '12px',
-        cursor: 'default',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
       }}
     >
       📄 {label}
-    </span>
+    </button>
   )
 }

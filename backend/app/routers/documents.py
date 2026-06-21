@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,6 +70,22 @@ async def get_document_status(document_id: str, db: AsyncSession = Depends(get_d
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
     return {"document_id": doc.id, "status": doc.status}
+
+
+@router.get("/{document_id}/file")
+async def download_document(document_id: str, db: AsyncSession = Depends(get_db)):
+    doc = await db.get(Document, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
+    file_path = Path(settings.upload_dir) / f"{document_id}.pdf"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File PDF không tìm thấy trên server")
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/pdf",
+        filename=doc.filename,
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 @router.delete("/{document_id}", status_code=204)

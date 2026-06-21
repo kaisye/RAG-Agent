@@ -16,18 +16,25 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-_in_memory_client: QdrantClient | None = None
+_singleton: QdrantClient | None = None
 
 
 def _client() -> QdrantClient:
-    global _in_memory_client
+    """Return a process-wide singleton QdrantClient.
+
+    `:memory:` — local in-process store (no Docker needed, data lost on restart).
+    Any URL    — persistent remote Qdrant; reuse the same connection pool across
+                 all requests instead of opening a new TCP connection each time.
+    """
+    global _singleton
+    if _singleton is not None:
+        return _singleton
     url = settings.qdrant_url
     if url == ":memory:":
-        # Singleton so all callers in the same process share the same in-memory store
-        if _in_memory_client is None:
-            _in_memory_client = QdrantClient(location=":memory:")
-        return _in_memory_client
-    return QdrantClient(url=url)
+        _singleton = QdrantClient(location=":memory:")
+    else:
+        _singleton = QdrantClient(url=url)
+    return _singleton
 
 
 def _point_id(logical_id: str) -> str:
