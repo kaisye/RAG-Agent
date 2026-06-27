@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, status
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -9,6 +10,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.document import Document
 from app.models.schemas import DocumentOut, DocumentStatus
 from app.services.ingestion import run_ingestion_pipeline
+from app.services.markdown_converter import convert_pdf_to_markdown
 from app.services.vector_store import delete_document_vectors
 
 router = APIRouter()
@@ -92,6 +94,31 @@ async def get_document_status(document_id: str):
     if doc is None:
         _not_found(document_id)
     return doc
+
+
+# ---------------------------------------------------------------------------
+# GET /documents/{id}/markdown
+# ---------------------------------------------------------------------------
+
+@router.get("/{document_id}/markdown", response_class=PlainTextResponse)
+async def get_document_markdown(document_id: str):
+    async with AsyncSessionLocal() as session:
+        doc = await session.get(Document, document_id)
+    if doc is None:
+        _not_found(document_id)
+
+    settings = get_settings()
+    # Markdown filename matches the PDF stem stored at upload time
+    pdf_stem = Path(doc.file_path).stem
+    md_path = Path(settings.markdown_dir) / f"{pdf_stem}.md"
+
+    if not md_path.exists():
+        # Convert on-demand and cache
+        if not Path(doc.file_path).exists():
+            raise HTTPException(status_code=404, detail="Source PDF not found on disk.")
+        convert_pdf_to_markdown(doc.file_path, settings.markdown_dir)
+
+    return md_path.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
