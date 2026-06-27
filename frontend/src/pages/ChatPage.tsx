@@ -5,30 +5,10 @@ import { MessageList } from "../components/chat/MessageList"
 import { MessageInput } from "../components/chat/MessageInput"
 import { FileUploadPanel } from "../components/documents/FileUploadPanel"
 import { DocumentList } from "../components/documents/DocumentList"
+import { PdfViewerPanel } from "../components/pdf/PdfViewerPanel"
 import { DEFAULT_CONFIG } from "../types/pipeline"
 import type { PipelineConfig } from "../types/pipeline"
 import type { Document } from "../types/document"
-
-function PdfPlaceholder({ documentId, currentPage }: { documentId: string; currentPage: number }) {
-  if (!documentId) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", height: "100%", color: "#9ca3af", gap: 8 }}>
-        <span style={{ fontSize: 40 }}>📄</span>
-        <p style={{ margin: 0, fontSize: 13 }}>Chọn tài liệu để xem PDF</p>
-      </div>
-    )
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", height: "100%", color: "#6b7280", gap: 4 }}>
-      <span style={{ fontSize: 32 }}>📑</span>
-      <p style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>Trang {currentPage}</p>
-      <p style={{ margin: "2px 0 0", fontSize: 11, opacity: 0.6, wordBreak: "break-all",
-        maxWidth: 200, textAlign: "center" }}>{documentId}</p>
-    </div>
-  )
-}
 
 export function ChatPage() {
   const [selectedDoc, setSelectedDoc]   = useState<Document | null>(null)
@@ -181,19 +161,24 @@ export function ChatPage() {
         />
       </main>
 
-      {/* ── Right: PDF viewer placeholder ── */}
+      {/* ── Right: PDF viewer ── */}
       <aside style={{
-        width: 360, borderLeft: "1px solid #e5e7eb",
-        flexShrink: 0, background: "#f9fafb", display: "flex", flexDirection: "column",
+        width: 400, borderLeft: "1px solid #e5e7eb",
+        flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden",
       }}>
         <div style={{
           padding: "10px 12px", borderBottom: "1px solid #e5e7eb",
           fontSize: 12, fontWeight: 600, color: "#374151", flexShrink: 0,
+          background: "#f9fafb",
         }}>
-          PDF VIEWER {currentPage > 1 && `— Trang ${currentPage}`}
+          PDF VIEWER
         </div>
-        <div style={{ flex: 1 }}>
-          <PdfPlaceholder documentId={documentId} currentPage={currentPage} />
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          <PdfViewerPanel
+            fileUrl={documentId ? `/static/uploads/${documentId}.pdf` : ""}
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
+          />
         </div>
       </aside>
     </div>
