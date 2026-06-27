@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str = ""
     nvidia_chat_model: str = ""
     nvidia_embed_model: str = ""
-    nvidia_rerank_model: str = "nvidia/llama-3_2-nv-rerankqa-1b-v2"
+    nvidia_rerank_model: str = "nvidia/rerank-qa-mistral-4b"
     ollama_chat_model: str = "qwen2.5"
     ollama_base_url: str = "http://localhost:11434/v1"
 
