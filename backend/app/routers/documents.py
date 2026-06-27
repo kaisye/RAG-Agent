@@ -122,6 +122,55 @@ async def get_document_markdown(document_id: str):
 
 
 # ---------------------------------------------------------------------------
+# GET /documents/{id}/page/{page_num}/snippet
+# ---------------------------------------------------------------------------
+
+@router.get("/{document_id}/page/{page_num}/snippet")
+async def get_page_snippet(document_id: str, page_num: int):
+    """
+    Trả về snippet (150 ký tự đầu) của trang page_num từ storage/chunks/{id}.json.
+    Dùng cho frontend hiển thị preview citation mà không cần query ChromaDB.
+    """
+    import json as _json
+
+    async with AsyncSessionLocal() as session:
+        doc = await session.get(Document, document_id)
+    if doc is None:
+        _not_found(document_id)
+
+    chunks_path = Path("storage/chunks") / f"{document_id}.json"
+    if not chunks_path.exists():
+        raise HTTPException(status_code=404, detail="Chunks not found. Document may not be fully ingested.")
+
+    chunks = _json.loads(chunks_path.read_text(encoding="utf-8"))
+    page_chunks = [c for c in chunks if c.get("page") == page_num]
+    if not page_chunks:
+        raise HTTPException(status_code=404, detail=f"No chunks found for page {page_num}.")
+
+    # Ghép text của tất cả chunk trong trang, lấy 150 ký tự đầu
+    full_text = " ".join(c["text"] for c in page_chunks)
+    snippet = full_text[:150]
+
+    # Tìm ảnh cho trang này (nếu có)
+    settings = get_settings()
+    img_dir = Path(settings.images_dir) / document_id
+    images = []
+    if img_dir.is_dir():
+        import os
+        for f in sorted(img_dir.iterdir()):
+            if f.name.startswith(f"p{page_num}_"):
+                rel = os.path.relpath(f, "storage").replace("\\", "/")
+                images.append(f"/static/{rel}")
+
+    return {
+        "document_id": document_id,
+        "page": page_num,
+        "snippet": snippet,
+        "images": images,
+    }
+
+
+# ---------------------------------------------------------------------------
 # DELETE /documents/{id}
 # ---------------------------------------------------------------------------
 

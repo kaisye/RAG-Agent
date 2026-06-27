@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import PipelineConfig, get_settings
+from app.services.citation import enrich_chunks
 from app.services.pipeline import RAGPipeline
 
 logger = logging.getLogger(__name__)
@@ -62,9 +63,11 @@ async def chat(req: ChatRequest):
     async def generate():
         try:
             # 1. Retrieve context chunks — synchronous, trước khi stream
-            contexts = pipeline.retrieve(req.message, req.document_id)
+            raw_contexts = pipeline.retrieve(req.message, req.document_id)
+            # Bổ sung citation fields: snippet, type, thumbnail_url
+            contexts = enrich_chunks(raw_contexts)
 
-            # 2. Emit mỗi context chunk
+            # 2. Emit mỗi context chunk (đã có citation fields)
             for chunk in contexts:
                 yield _sse({"type": "context", "data": chunk})
 
