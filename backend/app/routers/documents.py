@@ -1,17 +1,23 @@
+import json
+import logging
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, status
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.core.config import get_settings
+from app.core.config import PipelineConfig, get_settings
 from app.core.database import AsyncSessionLocal
 from app.models.document import Document
 from app.models.schemas import DocumentOut, DocumentStatus
 from app.services.ingestion import run_ingestion_pipeline
 from app.services.markdown_converter import convert_pdf_to_markdown
+from app.services.pipeline import RAGPipeline
 from app.services.vector_store import delete_document_vectors
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -168,6 +174,146 @@ async def get_page_snippet(document_id: str, page_num: int):
         "snippet": snippet,
         "images": images,
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /documents/{id}/quiz
+# ---------------------------------------------------------------------------
+
+_QUIZ_SYSTEM = (
+    "Bạn là giáo viên tạo câu hỏi trắc nghiệm từ tài liệu. "
+    "CHỈ trả về JSON hợp lệ, không có markdown, không có giải thích nào khác."
+)
+
+_QUIZ_USER_TEMPLATE = """\
+Dựa vào các đoạn tài liệu dưới đây{topic_clause}, hãy tạo đúng {num} câu hỏi trắc nghiệm 4 lựa chọn (A, B, C, D).
+
+TÀI LIỆU:
+{context}
+
+Trả về JSON với cấu trúc sau (không thêm bất cứ thứ gì ngoài JSON):
+{{
+  "questions": [
+    {{
+      "question": "Nội dung câu hỏi",
+      "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
+      "correct_index": 0,
+      "explanation": "Giải thích tại sao đáp án đúng",
+      "source_page": 1
+    }}
+  ]
+}}"""
+
+_QUIZ_CONFIG = PipelineConfig(
+    chunking_strategy="semantic",
+    retrieval_strategy="hybrid_rrf",
+    query_transform="none",
+    rerank_strategy="none",
+    top_k_retrieval=12,
+    top_k_final=6,
+)
+
+
+class QuizRequest(BaseModel):
+    topic: str | None = None
+    num_questions: int = 5
+
+
+def _call_quiz_llm(llm, messages: list) -> dict:
+    """Call LLM, strip optional markdown fences, parse JSON. Raises ValueError on bad format."""
+    response = llm.chat(messages, stream=False)
+    raw = response.choices[0].message.content or ""
+    # Strip ```json ... ``` fences if model adds them despite instructions
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.rsplit("```", 1)[0].strip()
+    data = json.loads(raw)
+    if "questions" not in data or not isinstance(data["questions"], list):
+        raise ValueError("Missing 'questions' array in LLM response")
+    return data
+
+
+@router.post("/{document_id}/quiz")
+async def generate_quiz(document_id: str, req: QuizRequest):
+    """
+    Retrieve relevant context via RAGPipeline (semantic+hybrid_rrf), then ask the
+    LLM to generate structured MCQ JSON. Retries once on parse failure.
+    """
+    async with AsyncSessionLocal() as session:
+        doc = await session.get(Document, document_id)
+    if doc is None:
+        _not_found(document_id)
+    if doc.status != "ready":
+        raise HTTPException(status_code=422, detail="Document is not ready yet.")
+
+    num = max(1, min(req.num_questions, 20))
+    topic = (req.topic or "").strip()
+
+    # Retrieve context
+    pipeline = RAGPipeline(_QUIZ_CONFIG)
+    retrieve_query = topic if topic else "nội dung chính của tài liệu"
+    try:
+        contexts = pipeline.retrieve(retrieve_query, document_id)
+    except Exception as exc:
+        logger.exception("Quiz retrieve failed for %s", document_id)
+        raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}")
+
+    if not contexts:
+        raise HTTPException(status_code=404, detail="No relevant content found for this topic.")
+
+    context_text = "\n\n---\n\n".join(
+        f"[Trang {c['page']}]\n{c['text']}" for c in contexts
+    )
+    topic_clause = f" về chủ đề '{topic}'" if topic else ""
+    user_content = _QUIZ_USER_TEMPLATE.format(
+        topic_clause=topic_clause,
+        num=num,
+        context=context_text,
+    )
+    messages = [
+        {"role": "system", "content": _QUIZ_SYSTEM},
+        {"role": "user",   "content": user_content},
+    ]
+
+    llm = pipeline._llm
+
+    # First attempt
+    try:
+        data = _call_quiz_llm(llm, messages)
+    except (json.JSONDecodeError, ValueError, KeyError) as first_err:
+        logger.warning("Quiz LLM parse failed (attempt 1): %s — retrying", first_err)
+        # Retry: add error feedback to nudge the model
+        messages.append({
+            "role": "assistant",
+            "content": "```json",  # partial bad response
+        })
+        messages.append({
+            "role": "user",
+            "content": (
+                "Lỗi: không parse được JSON. "
+                "Hãy trả về CHỈ JSON hợp lệ, bắt đầu bằng { và kết thúc bằng }."
+            ),
+        })
+        try:
+            data = _call_quiz_llm(llm, messages)
+        except (json.JSONDecodeError, ValueError, KeyError) as second_err:
+            logger.error("Quiz LLM parse failed (attempt 2): %s", second_err)
+            raise HTTPException(
+                status_code=502,
+                detail="LLM returned invalid JSON after 2 attempts. Please retry.",
+            )
+
+    # Validate + clip to requested count
+    questions = data["questions"][:num]
+    for q in questions:
+        # Ensure correct_index is in bounds
+        if not isinstance(q.get("correct_index"), int) or not (0 <= q["correct_index"] <= 3):
+            q["correct_index"] = 0
+
+    return {"document_id": document_id, "topic": topic or None, "questions": questions}
 
 
 # ---------------------------------------------------------------------------
