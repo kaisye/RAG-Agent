@@ -37,7 +37,7 @@ class EmbeddingService:
                 lambda b=batch: self.client.embeddings.create(
                     input=b,
                     model=self.model,
-                    extra_body={"input_type": input_type},
+                    extra_body={"input_type": input_type, "truncate": "END"},
                     encoding_format="float",
                 )
             )
