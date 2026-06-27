@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.database import init_db
-from app.routers import documents
+from app.routers import chat, documents
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="storage"), name="static")
 
 app.include_router(documents.router, prefix="/documents", tags=["documents"])
+app.include_router(chat.router, tags=["chat"])
 
 
 @app.get("/health")
