@@ -6,6 +6,7 @@ import { MessageInput } from "../components/chat/MessageInput"
 import { FileUploadPanel } from "../components/documents/FileUploadPanel"
 import { DocumentList } from "../components/documents/DocumentList"
 import { PdfViewerPanel } from "../components/pdf/PdfViewerPanel"
+import { PipelineConfigPanel } from "../components/config/PipelineConfigPanel"
 import { DEFAULT_CONFIG } from "../types/pipeline"
 import type { PipelineConfig } from "../types/pipeline"
 import type { Document } from "../types/document"
@@ -71,56 +72,30 @@ export function ChatPage() {
           />
         </div>
 
-        {/* Pipeline config */}
-        <div style={{ padding: "12px", borderTop: "1px solid #e5e7eb", overflowY: "auto", maxHeight: 280 }}>
-          <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: "#374151" }}>
-            PIPELINE CONFIG
-          </p>
-          {(
-            [
-              { key: "chunking_strategy",  label: "Chunking",
-                options: [["recursive","Recursive"],["semantic","Semantic ★"]] },
-              { key: "retrieval_strategy", label: "Retrieval",
-                options: [["vector","Vector"],["hybrid_rrf","Hybrid RRF ★"],
-                          ["hybrid_interleaving","Hybrid Xen kẽ"],["bm25","BM25"]] },
-              { key: "query_transform",    label: "Query Transform",
-                options: [["none","Không"],["decomposition","Decomposition ★"],["hyde","HyDE"]] },
-              { key: "rerank_strategy",    label: "Reranking",
-                options: [["none","Không"],["cross_encoder","Cross-Encoder"],["mmr","MMR"]] },
-            ] as { key: keyof PipelineConfig; label: string; options: [string,string][] }[]
-          ).map(({ key, label, options }) => (
-            <div key={key} style={{ marginBottom: 8 }}>
-              <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 2 }}>
-                {label}
-              </label>
-              <select
-                value={config[key] as string}
-                onChange={e => setConfig(c => ({ ...c, [key]: e.target.value }))}
-                disabled={isStreaming}
-                style={{
-                  width: "100%", fontSize: 12, border: "1px solid #d1d5db",
-                  borderRadius: 6, padding: "4px 6px", background: "#fff",
-                  cursor: isStreaming ? "not-allowed" : "pointer",
-                }}
-              >
-                {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </div>
-          ))}
+        {/* Pipeline config — component with RAGAS numbers */}
+        <div style={{ overflowY: "auto", maxHeight: 320, flexShrink: 0 }}>
+          <PipelineConfigPanel
+            config={config}
+            onChange={setConfig}
+            disabled={isStreaming}
+          />
+        </div>
 
-          {messages.length > 0 && (
+        {/* Clear history */}
+        {messages.length > 0 && (
+          <div style={{ padding: "8px 12px", borderTop: "1px solid #e5e7eb", flexShrink: 0 }}>
             <button
               onClick={clearHistory}
               style={{
-                marginTop: 8, width: "100%", fontSize: 12, padding: "5px",
+                width: "100%", fontSize: 12, padding: "5px",
                 borderRadius: 6, border: "1px solid #e5e7eb",
                 background: "#fff", cursor: "pointer", color: "#6b7280",
               }}
             >
               Xóa lịch sử
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </aside>
 
       {/* ── Center: chat ── */}
