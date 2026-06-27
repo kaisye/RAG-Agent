@@ -29,9 +29,9 @@ export interface AblationRow {
 export interface AblationStatus {
   running:        boolean
   done:           boolean
-  error:          string
+  error?:         string
   current_config: number
   total_configs:  number
-  current_label:  string
-  results:        RagasScores[]
+  current_label?: string
+  results?:       AblationResult[]
 }
