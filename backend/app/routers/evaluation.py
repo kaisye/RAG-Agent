@@ -1,21 +1,33 @@
 """
-POST /evaluation/generate-testset
-Chạy TestsetGenerator như background task, lưu kết quả vào evaluation/testset.json.
+Evaluation endpoints:
+  POST /evaluation/generate-testset  — sinh testset từ PDF (background)
+  GET  /evaluation/generate-testset/status
+  POST /evaluation/run               — chạy RAGAS evaluate_pipeline (background)
+  GET  /evaluation/run/status
 """
 import asyncio
+import json
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel
 
+from app.core.config import PipelineConfig
+
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
 _TESTSET_PATH = Path("evaluation/testset.json")
 _SAMPLE_PDF_DIR = "evaluation/sample_docs"
 _MD_DIR = "storage/markdown"
+_RESULTS_DIR = Path("evaluation/results")
 
 # Track trạng thái job đơn giản (in-memory, reset khi restart)
 _job_status: dict = {"running": False, "done": False, "count": 0, "error": ""}
+_eval_status: dict = {"running": False, "done": False, "result": None, "error": ""}
+
+
+from pydantic import BaseModel
 
 
 class GenerateTestsetRequest(BaseModel):
@@ -86,4 +98,82 @@ async def testset_status():
     status = dict(_job_status)
     if status.get("done"):
         status["testset_path"] = str(_TESTSET_PATH)
+    return status
+
+
+# ---------------------------------------------------------------------------
+# POST /evaluation/run — chạy RAGAS evaluate_pipeline
+# ---------------------------------------------------------------------------
+
+class RunEvalRequest(BaseModel):
+    document_id: str
+    config: PipelineConfig = PipelineConfig()
+    testset_path: str = str(_TESTSET_PATH)
+    sleep_between: float = 1.5
+
+
+def _run_evaluation(document_id: str, config: PipelineConfig, testset_path: str, sleep_between: float):
+    """Chạy đồng bộ trong thread pool."""
+    import asyncio as _asyncio
+    global _eval_status
+    try:
+        _eval_status = {"running": True, "done": False, "result": None, "error": ""}
+
+        from app.services.evaluation.evaluator import evaluate_pipeline as _eval
+        result = _asyncio.run(_eval(config, document_id, testset_path, sleep_between))
+
+        _eval_status = {"running": False, "done": True, "result": result, "error": ""}
+        logger.info("Evaluation complete: %s", result.get("scores"))
+    except Exception as exc:
+        logger.exception("Evaluation failed")
+        _eval_status = {"running": False, "done": False, "result": None, "error": str(exc)}
+        raise
+
+
+@router.post("/run", status_code=202)
+async def run_evaluation(req: RunEvalRequest, background_tasks: BackgroundTasks):
+    """
+    Chạy RAGAS evaluate_pipeline cho một PipelineConfig.
+    Kết quả được lưu vào evaluation/results/{label}.json.
+    Poll GET /evaluation/run/status để lấy kết quả.
+    """
+    global _eval_status
+    if _eval_status.get("running"):
+        raise HTTPException(status_code=409, detail="Evaluation already running.")
+
+    testset = Path(req.testset_path)
+    if not testset.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Testset not found: {req.testset_path}. Run /evaluation/generate-testset first.",
+        )
+
+    _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    background_tasks.add_task(
+        asyncio.get_event_loop().run_in_executor,
+        None,
+        _run_evaluation,
+        req.document_id,
+        req.config,
+        req.testset_path,
+        req.sleep_between,
+    )
+
+    return {
+        "status": "accepted",
+        "message": "Evaluation started. Poll /evaluation/run/status for progress.",
+        "document_id": req.document_id,
+        "config": req.config.model_dump(),
+    }
+
+
+@router.get("/run/status")
+async def eval_status():
+    """Trả về trạng thái và kết quả của job evaluation hiện tại."""
+    status = dict(_eval_status)
+    # Nếu done, liệt kê thêm tất cả kết quả đã lưu
+    if status.get("done") and _RESULTS_DIR.exists():
+        saved = [str(p) for p in sorted(_RESULTS_DIR.glob("*.json"))]
+        status["saved_results"] = saved
     return status
