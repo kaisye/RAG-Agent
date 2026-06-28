@@ -317,6 +317,125 @@ async def generate_quiz(document_id: str, req: QuizRequest):
 
 
 # ---------------------------------------------------------------------------
+# POST /documents/{id}/flashcards
+# ---------------------------------------------------------------------------
+
+_FLASHCARD_SYSTEM = (
+    "Bạn là giáo viên tạo flashcard học tập từ tài liệu. "
+    "CHỈ trả về JSON hợp lệ, không có markdown, không có giải thích nào khác."
+)
+
+_FLASHCARD_USER_TEMPLATE = """\
+Dựa vào các đoạn tài liệu dưới đây{topic_clause}, hãy tạo đúng {num} flashcard học tập.
+
+Quy tắc bắt buộc cho mặt trước (front):
+- Viết dạng câu hỏi ngắn gọn, KHÔNG chỉ liệt kê thuật ngữ đơn.
+- Ví dụ tốt: "MMR reranking giải quyết vấn đề gì?"
+- Ví dụ xấu: "MMR" hoặc "Định nghĩa MMR"
+- Ưu tiên câu hỏi "Tại sao", "Như thế nào", "Khi nào dùng".
+
+Quy tắc cho tag: chọn MỘT trong [concept, formula, example, comparison, warning].
+
+TÀI LIỆU:
+{context}
+
+Trả về JSON với cấu trúc sau (không thêm bất cứ thứ gì ngoài JSON):
+{{
+  "flashcards": [
+    {{
+      "front": "Câu hỏi ngắn gọn?",
+      "back": "Câu trả lời đầy đủ, rõ ràng, có thể dùng bullet points.",
+      "tag": "concept",
+      "source_page": 1
+    }}
+  ]
+}}"""
+
+
+class FlashcardRequest(BaseModel):
+    topic: str | None = None
+    num_cards: int = 10
+
+
+def _call_flashcard_llm(llm, messages: list) -> dict:
+    """Call LLM, strip optional markdown fences, parse JSON. Raises ValueError on bad format."""
+    response = llm.chat(messages, stream=False)
+    raw = (response.choices[0].message.content or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.rsplit("```", 1)[0].strip()
+    data = json.loads(raw)
+    if "flashcards" not in data or not isinstance(data["flashcards"], list):
+        raise ValueError("Missing 'flashcards' array in LLM response")
+    return data
+
+
+@router.post("/{document_id}/flashcards")
+async def generate_flashcards(document_id: str, req: FlashcardRequest):
+    async with AsyncSessionLocal() as session:
+        doc = await session.get(Document, document_id)
+    if doc is None:
+        _not_found(document_id)
+    if doc.status != "ready":
+        raise HTTPException(status_code=422, detail="Document is not ready yet.")
+
+    num = max(1, min(req.num_cards, 30))
+    topic = (req.topic or "").strip()
+
+    pipeline = RAGPipeline(_QUIZ_CONFIG)          # reuse same semantic+hybrid_rrf config
+    retrieve_query = topic if topic else "nội dung chính của tài liệu"
+    try:
+        contexts = pipeline.retrieve(retrieve_query, document_id)
+    except Exception as exc:
+        logger.exception("Flashcard retrieve failed for %s", document_id)
+        raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}")
+
+    if not contexts:
+        raise HTTPException(status_code=404, detail="No relevant content found for this topic.")
+
+    context_text = "\n\n---\n\n".join(
+        f"[Trang {c['page']}]\n{c['text']}" for c in contexts
+    )
+    topic_clause = f" về chủ đề '{topic}'" if topic else ""
+    messages = [
+        {"role": "system", "content": _FLASHCARD_SYSTEM},
+        {"role": "user",   "content": _FLASHCARD_USER_TEMPLATE.format(
+            topic_clause=topic_clause, num=num, context=context_text,
+        )},
+    ]
+
+    llm = pipeline._llm
+
+    try:
+        data = _call_flashcard_llm(llm, messages)
+    except (json.JSONDecodeError, ValueError, KeyError) as first_err:
+        logger.warning("Flashcard LLM parse failed (attempt 1): %s — retrying", first_err)
+        messages.append({"role": "user", "content": (
+            "Lỗi: không parse được JSON. "
+            "Hãy trả về CHỈ JSON hợp lệ, bắt đầu bằng { và kết thúc bằng }."
+        )})
+        try:
+            data = _call_flashcard_llm(llm, messages)
+        except (json.JSONDecodeError, ValueError, KeyError) as second_err:
+            logger.error("Flashcard LLM parse failed (attempt 2): %s", second_err)
+            raise HTTPException(status_code=502,
+                detail="LLM returned invalid JSON after 2 attempts. Please retry.")
+
+    valid_tags = {"concept", "formula", "example", "comparison", "warning"}
+    flashcards = []
+    for card in data["flashcards"][:num]:
+        if not card.get("front") or not card.get("back"):
+            continue
+        if card.get("tag") not in valid_tags:
+            card["tag"] = "concept"
+        flashcards.append(card)
+
+    return {"document_id": document_id, "topic": topic or None, "flashcards": flashcards}
+
+
+# ---------------------------------------------------------------------------
 # DELETE /documents/{id}
 # ---------------------------------------------------------------------------
 

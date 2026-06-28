@@ -1,12 +1,21 @@
 import { useState } from "react"
 import { QuizPanel } from "../components/quiz/QuizPanel"
+import { FlashcardPanel } from "../components/quiz/FlashcardPanel"
 import { useDocuments } from "../hooks/useDocuments"
 import type { Document } from "../types/document"
 
+type Mode = "quiz" | "flashcard"
+
+const MODE_LABELS: { key: Mode; label: string; icon: string }[] = [
+  { key: "quiz",      label: "Trắc nghiệm", icon: "✏️" },
+  { key: "flashcard", label: "Flashcard",   icon: "🃏" },
+]
+
 export function QuizPage() {
-  const { documents } = useDocuments()
-  const ready         = documents.filter(d => d.status === "ready")
+  const { documents }   = useDocuments()
+  const ready           = documents.filter(d => d.status === "ready")
   const [selected, setSelected] = useState<Document | null>(null)
+  const [mode, setMode]         = useState<Mode>("quiz")
   const [jumpPage, setJumpPage] = useState(1)
 
   return (
@@ -56,28 +65,59 @@ export function QuizPage() {
         </div>
       </aside>
 
-      {/* ── Center: quiz ── */}
-      <main style={{ flex: 1, overflowY: "auto", padding: "20px 24px", background: "#f3f4f6" }}>
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      {/* ── Main: mode tabs + panel ── */}
+      <main style={{ flex: 1, overflowY: "auto", background: "#f3f4f6" }}>
+        <div style={{ maxWidth: 740, margin: "0 auto", padding: "20px 24px" }}>
+
+          {/* Header */}
           <div style={{ marginBottom: 16 }}>
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#111827" }}>
-              Quiz Generator
+              Luyện tập
             </h1>
             <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6b7280" }}>
-              {selected
-                ? `Tài liệu: ${selected.filename}`
-                : "Chọn tài liệu ở bên trái để bắt đầu."}
+              {selected ? `Tài liệu: ${selected.filename}` : "Chọn tài liệu ở bên trái để bắt đầu."}
             </p>
           </div>
 
+          {/* Mode tabs */}
+          <div style={{
+            display: "flex", gap: 4, marginBottom: 16,
+            background: "#e5e7eb", padding: 4, borderRadius: 10, width: "fit-content",
+          }}>
+            {MODE_LABELS.map(({ key, label, icon }) => (
+              <button
+                key={key}
+                onClick={() => setMode(key)}
+                style={{
+                  padding: "6px 18px", fontSize: 13, fontWeight: 600,
+                  borderRadius: 7, border: "none", cursor: "pointer",
+                  background: mode === key ? "#fff" : "transparent",
+                  color:      mode === key ? "#111827" : "#6b7280",
+                  boxShadow:  mode === key ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+                  transition: "all 0.15s",
+                }}
+              >
+                {icon} {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Panel card */}
           <div style={{
             background: "#fff", border: "1px solid #e5e7eb",
             borderRadius: 12, padding: "20px",
           }}>
-            <QuizPanel
-              documentId={selected?.id ?? ""}
-              onJumpToPage={setJumpPage}
-            />
+            {mode === "quiz" ? (
+              <QuizPanel
+                documentId={selected?.id ?? ""}
+                onJumpToPage={setJumpPage}
+              />
+            ) : (
+              <FlashcardPanel
+                documentId={selected?.id ?? ""}
+                onJumpToPage={setJumpPage}
+              />
+            )}
           </div>
 
           {/* Page jump hint */}
