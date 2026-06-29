@@ -107,6 +107,44 @@ Copy `backend/.env.example` to `backend/.env` and fill in:
 
 ---
 
+## Memory Architecture
+
+Each chat request assembles a 4-layer context sent to the LLM:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Layer 1 — System Prompt (static)                       │
+│  "You are a helpful assistant that answers questions…"  │
+├─────────────────────────────────────────────────────────┤
+│  Layer 2 — Retrieved Context (working memory)           │
+│  Top-K chunks from Qdrant + BM25, reranked by score     │
+│  Updated on every new query                             │
+├─────────────────────────────────────────────────────────┤
+│  Layer 3 — Conversation History (short-term memory)     │
+│  All previous user/assistant turns in this session      │
+│  Configurable: keep last N turns via the UI slider      │
+├─────────────────────────────────────────────────────────┤
+│  Layer 4 — Current Query                                │
+│  The user's new message                                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+### History-Aware Retrieval
+
+Short follow-up messages like *"Answer in Vietnamese"* or *"Explain more"* contain no document keywords, causing RAG to retrieve irrelevant chunks. The system detects queries under 8 words and automatically enriches them with the previous user question before running retrieval — while still passing the original message to the LLM:
+
+```
+User turn 1: "What is Cosine Similarity?"  →  retrieval query: "What is Cosine Similarity?"
+User turn 2: "Answer in Vietnamese"        →  retrieval query: "What is Cosine Similarity? Answer in Vietnamese"
+                                               (LLM still sees: "Answer in Vietnamese" + history)
+```
+
+### Context Window Panel
+
+The UI exposes all 4 layers in a collapsible **Context Window** panel at the bottom of the chat column, with live token estimates (~4 chars/token) and a slider to cap how many history turns are sent to the LLM.
+
+---
+
 ## Project Mode (Multi-Document RAG)
 
 1. Upload multiple PDFs
