@@ -32,6 +32,11 @@ def _client() -> QdrantClient:
     url = settings.qdrant_url
     if url == ":memory:":
         _singleton = QdrantClient(location=":memory:")
+    elif url.startswith("./") or url.startswith(".\\") or (len(url) > 1 and url[1] == ":"):
+        # Local file path (e.g. ./qdrant_storage) — persistent, no Docker needed
+        from pathlib import Path
+        Path(url).mkdir(parents=True, exist_ok=True)
+        _singleton = QdrantClient(path=url)
     else:
         _singleton = QdrantClient(url=url)
     return _singleton

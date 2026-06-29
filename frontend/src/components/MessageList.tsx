@@ -1,11 +1,49 @@
 import { useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Message } from '../types'
 import { CitationChip } from './CitationChip'
+import { DebugPanel } from './DebugPanel'
 
 interface Props {
   messages: Message[]
   streaming: boolean
-  onJumpToPage: (page: number) => void
+  onJumpToPage: (page: number, documentId: string) => void
+}
+
+const THINKING_STYLE = `
+  @keyframes thinking-bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+    40%            { transform: translateY(-5px); opacity: 1; }
+  }
+  .thinking-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #90a4ae;
+    margin: 0 2px;
+    animation: thinking-bounce 1.3s ease-in-out infinite;
+  }
+  .thinking-dot:nth-child(2) { animation-delay: 0.18s; }
+  .thinking-dot:nth-child(3) { animation-delay: 0.36s; }
+`
+
+function ThinkingIndicator() {
+  return (
+    <>
+      <style>{THINKING_STYLE}</style>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 0' }}>
+        <span style={{ fontSize: '12px', color: '#90a4ae', fontStyle: 'italic', letterSpacing: '0.02em' }}>
+          Đang suy nghĩ
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span className="thinking-dot" />
+          <span className="thinking-dot" />
+          <span className="thinking-dot" />
+        </span>
+      </span>
+    </>
+  )
 }
 
 export function MessageList({ messages, streaming, onJumpToPage }: Props) {
@@ -40,13 +78,24 @@ export function MessageList({ messages, streaming, onJumpToPage }: Props) {
               color: msg.role === 'user' ? '#fff' : '#202124',
               fontSize: '14px',
               lineHeight: '1.6',
-              whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}
           >
-            {msg.content}
-            {streaming && msg.role === 'assistant' && msg === messages[messages.length - 1] && (
-              <span style={{ opacity: 0.5, animation: 'blink 1s step-end infinite' }}>▌</span>
+            {msg.role === 'user' ? (
+              <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+            ) : (
+              <div className="md-body">
+                {streaming && msg === messages[messages.length - 1] && !msg.content ? (
+                  <ThinkingIndicator />
+                ) : (
+                  <>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    {streaming && msg === messages[messages.length - 1] && (
+                      <span style={{ opacity: 0.5 }}>▌</span>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </div>
 
@@ -58,6 +107,11 @@ export function MessageList({ messages, streaming, onJumpToPage }: Props) {
                 <CitationChip key={i} citation={c} onJumpToPage={onJumpToPage} />
               ))}
             </div>
+          )}
+
+          {/* Debug panel */}
+          {msg.role === 'assistant' && msg.debug && (
+            <DebugPanel debug={msg.debug} />
           )}
         </div>
       ))}

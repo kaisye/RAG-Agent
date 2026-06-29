@@ -32,7 +32,7 @@ export function FileUploadPanel({ documents, uploading, error, selectedId, onUpl
   }
 
   return (
-    <div style={{ padding: '12px', borderRight: '1px solid #e0e0e0', width: '260px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflow: 'hidden' }}>
       <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>Documents</h3>
 
       <button

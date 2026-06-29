@@ -27,6 +27,21 @@ backend/storage/
 .DS_Store
 Thumbs.db
 
-# Node (frontend — future)
+# Node
 node_modules/
 frontend/dist/
+
+# Logs
+*.log
+uvicorn.log
+eval_output.log
+frontend.log
+
+# Evaluation results (large data files)
+backend/eval_results/
+
+# Database
+*.db
+
+# Pytest cache
+.pytest_cache/

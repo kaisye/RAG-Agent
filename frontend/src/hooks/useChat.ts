@@ -1,14 +1,26 @@
 import { useState, useCallback, useRef } from 'react'
-import type { Citation, Message } from '../types'
+import type { Citation, DebugInfo, Message } from '../types'
 
 function uuid() {
   return crypto.randomUUID()
 }
 
-export function useChat(documentId: string) {
+export interface HistoryTurn {
+  role: string
+  content: string
+}
+
+interface ChatOptions {
+  documentId?: string
+  projectId?: string
+  maxHistoryTurns?: number   // 0 = unlimited (default)
+}
+
+export function useChat({ documentId, projectId, maxHistoryTurns = 0 }: ChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [lastHistory, setLastHistory] = useState<HistoryTurn[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
   const sendMessage = useCallback(async (text: string) => {
@@ -22,14 +34,23 @@ export function useChat(documentId: string) {
     setMessages(prev => [...prev, userMsg, assistantMsg])
     setStreaming(true)
 
-    const history = messages.map(m => ({ role: m.role, content: m.content }))
+    const allHistory = messages.map(m => ({ role: m.role, content: m.content }))
+    // Slice to maxHistoryTurns pairs (1 pair = 1 user + 1 assistant msg = 2 items)
+    const history = maxHistoryTurns > 0
+      ? allHistory.slice(-(maxHistoryTurns * 2))
+      : allHistory
+    setLastHistory(history)
     abortRef.current = new AbortController()
+
+    const body: Record<string, unknown> = { message: text, history }
+    if (projectId) body.project_id = projectId
+    else if (documentId) body.document_id = documentId
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, document_id: documentId, history }),
+        body: JSON.stringify(body),
         signal: abortRef.current.signal,
       })
 
@@ -74,11 +95,20 @@ export function useChat(documentId: string) {
             }
 
             if (parsed.citations) {
-              // Attach citations to the assistant message
               setMessages(prev =>
                 prev.map(m =>
                   m.id === assistantId
                     ? { ...m, citations: parsed.citations as Citation[] }
+                    : m
+                )
+              )
+            }
+
+            if (parsed.debug) {
+              setMessages(prev =>
+                prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, debug: parsed.debug as DebugInfo }
                     : m
                 )
               )
@@ -95,7 +125,7 @@ export function useChat(documentId: string) {
     } finally {
       setStreaming(false)
     }
-  }, [messages, documentId, streaming])
+  }, [messages, documentId, projectId, streaming, maxHistoryTurns])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -106,5 +136,5 @@ export function useChat(documentId: string) {
     setError(null)
   }, [])
 
-  return { messages, streaming, error, sendMessage, stop, clear }
+  return { messages, streaming, error, lastHistory, sendMessage, stop, clear }
 }

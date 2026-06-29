@@ -3,7 +3,7 @@ import type { Citation } from '../types'
 
 interface Props {
   citation: Citation
-  onJumpToPage: (page: number) => void  // receives 1-based page
+  onJumpToPage: (page: number, documentId: string) => void
 }
 
 export function CitationChip({ citation, onJumpToPage }: Props) {
@@ -15,7 +15,7 @@ export function CitationChip({ citation, onJumpToPage }: Props) {
   const label = `Trang ${page1}`
 
   function handleClick() {
-    onJumpToPage(page1)
+    onJumpToPage(page1, citation.document_id)
     if (citation.type === 'image') setShowPreview(v => !v)
   }
 
@@ -85,7 +85,7 @@ export function CitationChip({ citation, onJumpToPage }: Props) {
   // Text citation — click jumps to page, no preview popup
   return (
     <button
-      onClick={() => onJumpToPage(page1)}
+      onClick={() => onJumpToPage(page1, citation.document_id)}
       title={citation.snippet}
       style={{
         display: 'inline-flex',

@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RAG PDF Project — Kỹ thuật sử dụng</title>
+<style>
+  :root {
+    --c1: #e53935; /* parse */
+    --c2: #8e24aa; /* chunk */
+    --c3: #1e88e5; /* embed */
+    --c4: #00897b; /* store */
+    --c5: #f4511e; /* retrieve */
+    --c6: #6d4c41; /* rerank */
+    --c7: #43a047; /* generate */
+    --bg: #f8f9fa;
+    --card: #ffffff;
+    --text: #212121;
+    --muted: #757575;
+    --border: #e0e0e0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 32px 16px 64px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 48px 0 40px;
+  }
+  .hero h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+  .hero p  { color: var(--muted); font-size: 1rem; max-width: 620px; margin: 0 auto; }
+
+  /* Pipeline flow */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin: 36px 0 48px;
+  }
+  .pipe-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .pipe-box {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .pipe-label { font-size: 10px; color: var(--muted); }
+  .pipe-arrow { font-size: 20px; color: #bdbdbd; padding: 0 2px; margin-top: 12px; }
+
+  /* Section headers */
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 48px 0 20px;
+  }
+  .phase-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .phase-header h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .phase-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
+    border-left: 4px solid var(--border);
+  }
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+  .card-icon {
+    font-size: 1.6rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .card-title { font-size: 1rem; font-weight: 700; }
+  .card-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .card p { font-size: 14px; color: #444; margin-bottom: 10px; }
+  .card p:last-child { margin-bottom: 0; }
+
+  /* Tags */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tag {
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #f5f5f5;
+    color: #555;
+    border: 1px solid #e0e0e0;
+  }
+
+  /* Why / How blocks */
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  @media (max-width: 600px) { .detail-grid { grid-template-columns: 1fr; } }
+  .detail-block {
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  .detail-block strong { display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+
+  /* Code block */
+  .code {
+    background: #263238;
+    color: #cfd8dc;
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    overflow-x: auto;
+    margin-top: 12px;
+    line-height: 1.6;
+  }
+  .code .kw  { color: #80cbc4; }
+  .code .str { color: #a5d6a7; }
+  .code .cmt { color: #546e7a; font-style: italic; }
+  .code .var { color: #ef9a9a; }
+  .code .num { color: #ffcc80; }
+
+  /* Score table */
+  .score-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+  .score-table th, .score-table td { padding: 7px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  .score-table th { background: #f5f5f5; font-weight: 700; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+  .score-table tr:last-child td { border-bottom: none; }
+
+  /* Footer */
+  .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 64px; }
+
+  /* Color overrides per phase */
+  .c-parse  { border-left-color: var(--c1); }
+  .c-chunk  { border-left-color: var(--c2); }
+  .c-embed  { border-left-color: var(--c3); }
+  .c-store  { border-left-color: var(--c4); }
+  .c-ret    { border-left-color: var(--c5); }
+  .c-rerank { border-left-color: var(--c6); }
+  .c-gen    { border-left-color: var(--c7); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>RAG PDF Project</h1>
+    <p>Tổng hợp các kỹ thuật được sử dụng trong hệ thống Retrieval-Augmented Generation xử lý tài liệu PDF.</p>
+  </div>
+
+  <!-- Pipeline -->
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c1)">PDF Parse</div>
+      <div class="pipe-label">PyMuPDF</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c2)">Chunk</div>
+      <div class="pipe-label">Adaptive</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c3)">Embed</div>
+      <div class="pipe-label">NVIDIA NIM</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c4)">Store</div>
+      <div class="pipe-label">Qdrant</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c5)">Retrieve</div>
+      <div class="pipe-label">Hybrid + HyDE + Decomp</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c6)">Rerank</div>
+      <div class="pipe-label">Cross-Encoder</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-box" style="background:var(--c7)">Generate</div>
+      <div class="pipe-label">LLM + SSE</div>
+    </div>
+  </div>
+
+  <!-- ===== PHASE 1: INGESTION ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:var(--c1)"></div>
+    <h2>Phase 1 — Ingestion</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- PDF Parsing -->
+  <div class="card c-parse">
+    <div class="card-header">
+      <div class="card-icon">📄</div>
+      <div>
+        <div class="card-title">PDF Parsing</div>
+        <div class="card-subtitle">PyMuPDF (fitz)</div>
+      </div>
+    </div>
+    <p>Đọc file PDF và trích xuất từng block văn bản cùng hình ảnh, kèm metadata trang. Mỗi block giữ nguyên thông tin <code>page</code>, <code>block_id</code>, và toạ độ trên trang.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Đầu vào</strong>
+        File PDF bất kỳ (văn bản, sách, slide, báo cáo)
+      </div>
+      <div class="detail-block">
+        <strong>Đầu ra</strong>
+        Danh sách text blocks + image blocks kèm page number
+      </div>
+    </div>
+    <div class="tags">
+      <span class="tag">PyMuPDF</span>
+      <span class="tag">Text extraction</span>
+      <span class="tag">Image extraction</span>
+    </div>
+  </div>
+
+  <!-- Adaptive Chunking -->
+  <div class="card c-chunk">
+    <div class="card-header">
+      <div class="card-icon">✂️</div>
+      <div>
+        <div class="card-title">Adaptive Chunking</div>
+        <div class="card-subtitle">NLTK sentence tokenizer + Heading detection + Overlap</div>
+      </div>
+    </div>
+    <p>Thay vì cắt cứng theo số token, hệ thống chia theo cấu trúc ngữ nghĩa: phát hiện heading để tách section, chia từng sentence bằng NLTK, gộp câu đến khi đạt ngưỡng ký tự, giữ lại 12% overlap giữa các chunk liền kề.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Tại sao không dùng fixed-size?</strong>
+        Fixed-size có thể cắt ngang câu hoặc đoạn văn, làm mất ngữ nghĩa. Sentence-based đảm bảo mỗi chunk là đơn vị ngữ nghĩa hoàn chỉnh.
+      </div>
+      <div class="detail-block">
+        <strong>Overlap để làm gì?</strong>
+        Đảm bảo context ở ranh giới giữa 2 chunk không bị mất. Câu kết của chunk trước được lặp lại ở đầu chunk sau.
+      </div>
+    </div>
+    <div class="code">
+<span class="cmt"># Params trong chunker.py</span>
+<span class="var">_TARGET_TOKENS</span> = <span class="num">400</span>   <span class="cmt"># chars (Vietnamese ~1.5 chars/token)</span>
+<span class="var">_MAX_TOKENS</span>    = <span class="num">500</span>   <span class="cmt"># hard limit</span>
+<span class="var">_OVERLAP_RATIO</span> = <span class="num">0.12</span>  <span class="cmt"># 12% overlap</span>
+    </div>
+    <div class="tags">
+      <span class="tag">NLTK</span>
+      <span class="tag">Sentence splitting</span>
+      <span class="tag">Heading detection</span>
+      <span class="tag">Sliding window overlap</span>
+    </div>
+  </div>
+
+  <!-- Embedding -->
+  <div class="card c-embed">
+    <div class="card-header">
+      <div class="card-icon">🔢</div>
+      <div>
+        <div class="card-title">Text Embedding</div>
+        <div class="card-subtitle">NVIDIA NIM — nvidia/nv-embedqa-e5-v5 (1024-dim)</div>
+      </div>
+    </div>
+    <p>Chuyển mỗi chunk văn bản thành vector 1024 chiều. Model phân biệt <code>input_type</code>: dùng <strong>"passage"</strong> khi embed chunk lưu vào DB, dùng <strong>"query"</strong> khi embed câu hỏi lúc tìm kiếm. Sự phân biệt này giúp cosine similarity chính xác hơn.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>input_type: "passage"</strong>
+        Dùng cho: chunks lúc ingest, HyDE hypothetical docs
+      </div>
+      <div class="detail-block">
+        <strong>input_type: "query"</strong>
+        Dùng cho: câu hỏi của user lúc tìm kiếm
+      </div>
+    </div>
+    <div class="tags">
+      <span class="tag">NVIDIA NIM</span>
+      <span class="tag">nv-embedqa-e5-v5</span>
+      <span class="tag">1024-dim</span>
+      <span class="tag">Asymmetric embedding</span>
+    </div>
+  </div>
+
+  <!-- Qdrant -->
+  <div class="card c-store">
+    <div class="card-header">
+      <div class="card-icon">🗄️</div>
+      <div>
+        <div class="card-title">Vector Store</div>
+        <div class="card-subtitle">Qdrant — local file mode (không cần Docker)</div>
+      </div>
+    </div>
+    <p>Lưu trữ vectors và payload (text, page, doc_id) vào Qdrant. Project dùng <strong>local file mode</strong> — toàn bộ data lưu tại <code>./storage/qdrant/</code>, không cần khởi động server hay Docker. Tìm kiếm bằng cosine similarity.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>So với Docker mode</strong>
+        Đơn giản hơn: không cần docker-compose, start nhanh hơn. Hạn chế: chỉ 1 process truy cập cùng lúc.
+      </div>
+      <div class="detail-block">
+        <strong>So với FAISS</strong>
+        Qdrant hỗ trợ filter theo metadata (document_id, page), FAISS không có. Qdrant persistent, FAISS phải tự serialize.
+      </div>
+    </div>
+    <div class="tags">
+      <span class="tag">Qdrant</span>
+      <span class="tag">Cosine similarity</span>
+      <span class="tag">Metadata filtering</span>
+      <span class="tag">Local file storage</span>
+    </div>
+  </div>
+
+  <!-- ===== PHASE 2: RETRIEVAL ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:var(--c5)"></div>
+    <h2>Phase 2 — Retrieval</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- Hybrid Search -->
+  <div class="card c-ret">
+    <div class="card-header">
+      <div class="card-icon">🔍</div>
+      <div>
+        <div class="card-title">Hybrid Search</div>
+        <div class="card-subtitle">Vector Search + BM25 → RRF Fusion</div>
+      </div>
+    </div>
+    <p>Kết hợp hai phương pháp tìm kiếm bổ sung cho nhau: <strong>Vector search</strong> (semantic — hiểu ý nghĩa, bắt được paraphrase) và <strong>BM25</strong> (keyword — chính xác với tên riêng, thuật ngữ kỹ thuật). Kết quả từ hai nguồn được gộp bằng <strong>Reciprocal Rank Fusion (RRF)</strong>.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Tại sao kết hợp?</strong>
+        Vector giỏi paraphrase nhưng yếu với keyword cụ thể. BM25 ngược lại. Hybrid lấy điểm mạnh của cả hai.
+      </div>
+      <div class="detail-block">
+        <strong>RRF là gì?</strong>
+        Mỗi chunk nhận điểm = Σ 1/(k + rank). Chỉ dùng thứ hạng, không cần normalize score — cosine và BM25 không cùng thang điểm.
+      </div>
+    </div>
+    <div class="code">
+<span class="cmt"># RRF score formula</span>
+rrf[chunk_id] += <span class="num">1.0</span> / (k + rank + <span class="num">1</span>)
+<span class="cmt"># Chunk xuất hiện ở top của cả 2 danh sách → điểm cao nhất</span>
+    </div>
+    <div class="tags">
+      <span class="tag">BM25 (rank_bm25)</span>
+      <span class="tag">Vector search</span>
+      <span class="tag">RRF fusion</span>
+      <span class="tag">Semantic + Keyword</span>
+    </div>
+  </div>
+
+  <!-- HyDE -->
+  <div class="card c-ret">
+    <div class="card-header">
+      <div class="card-icon">💭</div>
+      <div>
+        <div class="card-title">HyDE — Hypothetical Document Embeddings</div>
+        <div class="card-subtitle">LLM tạo đoạn văn giả → embed as "passage" → vector search</div>
+      </div>
+    </div>
+    <p>Thay vì embed câu hỏi ngắn (thường chỉ 5–10 từ), LLM được yêu cầu viết một <strong>đoạn văn giả</strong> (3–5 câu) như thể đang trả lời câu hỏi đó. Đoạn văn này được embed với <code>input_type="passage"</code>, giúp vector nằm gần với các chunks trong tài liệu hơn.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Vấn đề HyDE giải quyết</strong>
+        "FastAPI là gì?" (query vector) ≠ "FastAPI is a modern Python framework..." (passage vector). Khoảng cách embedding lớn → bỏ lỡ kết quả liên quan.
+      </div>
+      <div class="detail-block">
+        <strong>Cách triển khai</strong>
+        BM25 vẫn dùng query gốc. Chỉ vector search mới dùng HyDE doc. Nếu LLM lỗi, fallback về query gốc.
+      </div>
+    </div>
+    <div class="code">
+<span class="cmt"># HyDE prompt</span>
+<span class="str">"Write a concise passage (3-5 sentences) that directly</span>
+<span class="str"> answers the question below. Write as if you are the</span>
+<span class="str"> source document itself."</span>
+
+<span class="cmt"># Sau đó embed với input_type="passage"</span>
+vec_results = vector_search(hyde_doc, input_type=<span class="str">"passage"</span>)
+bm25_results = bm25_search(original_query)  <span class="cmt"># query gốc</span>
+    </div>
+    <div class="tags">
+      <span class="tag">HyDE</span>
+      <span class="tag">Query expansion</span>
+      <span class="tag">Asymmetric embedding</span>
+      <span class="tag">Env: HYDE_ENABLED</span>
+    </div>
+  </div>
+
+  <!-- Query Decomposition -->
+  <div class="card c-ret">
+    <div class="card-header">
+      <div class="card-icon">🧩</div>
+      <div>
+        <div class="card-title">Query Decomposition</div>
+        <div class="card-subtitle">LLM chia câu hỏi phức tạp → N sub-queries → tìm song song → RRF merge</div>
+      </div>
+    </div>
+    <p>Với câu hỏi nhiều vế (ví dụ: "So sánh FastAPI và Flask về performance và ease of use"), LLM chia thành N sub-queries độc lập. Mỗi sub-query được search riêng, kết quả được merge bằng Multi-query RRF. Chunk xuất hiện trong nhiều sub-query được ưu tiên.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Tại sao cần?</strong>
+        Một câu hỏi phức tạp thường không match tốt với bất kỳ chunk đơn lẻ nào. Tách nhỏ → tìm được nhiều context hơn.
+      </div>
+      <div class="detail-block">
+        <strong>Multi-query RRF</strong>
+        Merge N result lists với RRF. Chunk xuất hiện ở top nhiều list → điểm tích lũy cao → được ưu tiên đưa vào reranker.
+      </div>
+    </div>
+    <div class="code">
+<span class="cmt"># Decompose prompt → ["sub-q 1", "sub-q 2", "sub-q 3"]</span>
+<span class="kw">for</span> q <span class="kw">in</span> sub_queries:
+    hyde_text = generate_hypothetical_doc(q)  <span class="cmt"># nếu HyDE bật</span>
+    results = hybrid_search(q, hyde_text=hyde_text)
+    all_results.append(results)
+
+candidates = multi_rrf(all_results)  <span class="cmt"># merge</span>
+    </div>
+    <div class="tags">
+      <span class="tag">Query decomposition</span>
+      <span class="tag">Multi-query retrieval</span>
+      <span class="tag">Multi-query RRF</span>
+      <span class="tag">Env: QUERY_DECOMPOSITION_ENABLED</span>
+    </div>
+  </div>
+
+  <!-- ===== PHASE 3: RERANKING ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:var(--c6)"></div>
+    <h2>Phase 3 — Reranking</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- Cross-Encoder Reranking -->
+  <div class="card c-rerank">
+    <div class="card-header">
+      <div class="card-icon">⚖️</div>
+      <div>
+        <div class="card-title">Cross-Encoder Reranking</div>
+        <div class="card-subtitle">BAAI/bge-reranker-base (sentence-transformers)</div>
+      </div>
+    </div>
+    <p>Sau khi hybrid search trả về ~20 candidates, cross-encoder đánh giá <strong>từng cặp (query, chunk)</strong> cùng lúc — thay vì so sánh vector riêng lẻ như bi-encoder. Chính xác hơn nhiều nhưng chỉ chạy được trên pool nhỏ do complexity O(n).</p>
+
+    <table class="score-table">
+      <thead>
+        <tr><th>Phương pháp</th><th>Cách hoạt động</th><th>Độ chính xác</th><th>Tốc độ</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Bi-encoder</strong> (vector search)</td>
+          <td>Embed query và chunk độc lập → cosine</td>
+          <td>Trung bình</td>
+          <td>Rất nhanh (1 lần embed)</td>
+        </tr>
+        <tr>
+          <td><strong>Cross-encoder</strong> (reranker)</td>
+          <td>Xử lý cặp (query, chunk) cùng lúc</td>
+          <td>Cao</td>
+          <td>Chậm hơn O(n)</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="tags">
+      <span class="tag">Cross-encoder</span>
+      <span class="tag">BAAI/bge-reranker-base</span>
+      <span class="tag">sentence-transformers</span>
+      <span class="tag">Env: RERANKER_ENABLED</span>
+    </div>
+  </div>
+
+  <!-- ===== PHASE 4: GENERATION ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:var(--c7)"></div>
+    <h2>Phase 4 — Generation</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- LLM Generation -->
+  <div class="card c-gen">
+    <div class="card-header">
+      <div class="card-icon">🤖</div>
+      <div>
+        <div class="card-title">LLM Generation</div>
+        <div class="card-subtitle">NVIDIA NIM — openai/gpt-oss-120b</div>
+      </div>
+    </div>
+    <p>Top-K chunks sau reranking được ghép thành context block, kèm system prompt yêu cầu LLM chỉ trả lời dựa trên context và cite số trang. Model gọi qua NVIDIA NIM API — OpenAI-compatible, không cần thay đổi client code.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>RAG vs Pure LLM</strong>
+        Pure LLM có thể hallucinate vì không biết nội dung tài liệu. RAG grounding câu trả lời vào chunks thực tế, giảm hallucination.
+      </div>
+      <div class="detail-block">
+        <strong>System prompt strategy</strong>
+        "Always base answers strictly on the context. If context is insufficient, say so clearly. Cite page numbers."
+      </div>
+    </div>
+    <div class="tags">
+      <span class="tag">NVIDIA NIM</span>
+      <span class="tag">openai/gpt-oss-120b</span>
+      <span class="tag">Context grounding</span>
+      <span class="tag">Page citation</span>
+    </div>
+  </div>
+
+  <!-- SSE Streaming -->
+  <div class="card c-gen">
+    <div class="card-header">
+      <div class="card-icon">⚡</div>
+      <div>
+        <div class="card-title">SSE Streaming</div>
+        <div class="card-subtitle">Server-Sent Events — token-by-token response</div>
+      </div>
+    </div>
+    <p>Response không đợi LLM hoàn thành mà stream từng token ngay khi có. Backend dùng FastAPI <code>StreamingResponse</code> với <code>text/event-stream</code>. Mỗi event là một JSON payload nhỏ.</p>
+    <div class="code">
+<span class="cmt"># Sequence của SSE events</span>
+data: {"debug":    {...}}        <span class="cmt"># pipeline debug info (trước tiên)</span>
+data: {"delta":    "Fast"}       <span class="cmt"># từng token LLM</span>
+data: {"delta":    "API"}
+data: {"delta":    " là..."}
+data: {"citations": [...]}       <span class="cmt"># sau khi stream xong</span>
+data: [DONE]
+    </div>
+    <div class="tags">
+      <span class="tag">Server-Sent Events</span>
+      <span class="tag">FastAPI StreamingResponse</span>
+      <span class="tag">Token streaming</span>
+    </div>
+  </div>
+
+  <!-- ===== EVALUATION ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:#455a64"></div>
+    <h2>Evaluation — RAGAS</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <div class="card" style="border-left-color:#455a64">
+    <div class="card-header">
+      <div class="card-icon">📊</div>
+      <div>
+        <div class="card-title">RAGAS Evaluation Framework</div>
+        <div class="card-subtitle">ragas==0.1.21 — 4 metrics tự động không cần labeled data</div>
+      </div>
+    </div>
+    <p>Script <code>evaluate_ragas.py</code> tự động sinh câu hỏi từ tài liệu, chạy qua pipeline RAG, rồi dùng LLM-as-judge để tính 4 metrics:</p>
+
+    <table class="score-table">
+      <thead>
+        <tr><th>Metric</th><th>Đo gì</th><th>LLM judge?</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Faithfulness</strong></td>
+          <td>Câu trả lời có được hỗ trợ bởi context không? (anti-hallucination)</td>
+          <td>Có</td>
+        </tr>
+        <tr>
+          <td><strong>Answer Relevancy</strong></td>
+          <td>Câu trả lời có trả lời đúng câu hỏi không?</td>
+          <td>Có</td>
+        </tr>
+        <tr>
+          <td><strong>Context Precision</strong></td>
+          <td>Các chunks được retrieve có thực sự liên quan không?</td>
+          <td>Có</td>
+        </tr>
+        <tr>
+          <td><strong>Context Recall</strong></td>
+          <td>Pipeline có lấy đủ thông tin cần thiết không?</td>
+          <td>Có</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="tags">
+      <span class="tag">RAGAS 0.1.21</span>
+      <span class="tag">LLM-as-judge</span>
+      <span class="tag">No labeled data needed</span>
+    </div>
+  </div>
+
+  <!-- ===== MEMORY ARCHITECTURE ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:#5c6bc0"></div>
+    <h2>Memory Architecture</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- Memory overview diagram -->
+  <div class="card" style="border-left-color:#5c6bc0">
+    <div class="card-header">
+      <div class="card-icon">🧠</div>
+      <div>
+        <div class="card-title">Bốn loại Memory trong RAG System</div>
+        <div class="card-subtitle">Parametric · Long-term External · Working · Short-term Context</div>
+      </div>
+    </div>
+    <p>Mọi hệ thống RAG đều quản lý nhiều lớp "bộ nhớ" khác nhau — từ kiến thức tĩnh trong model weights đến context động được lắp ráp mỗi request. Hiểu rõ từng lớp giúp debug và tối ưu chính xác hơn.</p>
+
+    <!-- Memory flow diagram -->
+    <div style="margin:20px 0;padding:20px;background:#f8f9ff;border-radius:10px;border:1px solid #e8eaf6">
+      <div style="font-size:11px;font-weight:700;color:#7986cb;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px">Data Flow qua các lớp Memory</div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px">
+
+        <div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#e65100">User Query</div>
+          <div style="color:#bf360c;font-size:10px">Sensory input</div>
+        </div>
+        <div style="color:#bdbdbd;font-size:18px">→</div>
+
+        <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#2e7d32">HyDE / Decomp</div>
+          <div style="color:#388e3c;font-size:10px">Query transform</div>
+        </div>
+        <div style="color:#bdbdbd;font-size:18px">→</div>
+
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:6px 12px;text-align:center">
+            <div style="font-weight:700;color:#1565c0">Qdrant Vectors</div>
+            <div style="color:#1976d2;font-size:10px">Long-term memory</div>
+          </div>
+          <div style="background:#fce4ec;border:1px solid #f48fb1;border-radius:8px;padding:6px 12px;text-align:center">
+            <div style="font-weight:700;color:#880e4f">BM25 Index</div>
+            <div style="color:#ad1457;font-size:10px">Working memory</div>
+          </div>
+        </div>
+        <div style="color:#bdbdbd;font-size:18px">→</div>
+
+        <div style="background:#f3e5f5;border:1px solid #ce93d8;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#6a1b9a">RRF → Rerank</div>
+          <div style="color:#7b1fa2;font-size:10px">Top-K chunks</div>
+        </div>
+        <div style="color:#bdbdbd;font-size:18px">→</div>
+
+        <div style="background:#e8eaf6;border:1px solid #9fa8da;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#283593">LLM Context Window</div>
+          <div style="color:#3949ab;font-size:10px">Short-term memory</div>
+        </div>
+        <div style="color:#bdbdbd;font-size:18px">→</div>
+
+        <div style="background:#e8f5e9;border:1px solid #81c784;border-radius:8px;padding:8px 12px;text-align:center">
+          <div style="font-weight:700;color:#1b5e20">Response</div>
+          <div style="color:#2e7d32;font-size:10px">+ citations</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 1. Parametric Memory -->
+  <div class="card" style="border-left-color:#5c6bc0">
+    <div class="card-header">
+      <div class="card-icon">⚙️</div>
+      <div>
+        <div class="card-title">① Parametric Memory</div>
+        <div class="card-subtitle">Kiến thức được mã hóa trong trọng số model (model weights)</div>
+      </div>
+    </div>
+    <p>Là kiến thức LLM <strong>học được trong quá trình training</strong> — không thể đọc, ghi, hay cập nhật trong runtime. Bao gồm: cách hiểu ngôn ngữ, reasoning, kiến thức thế giới chung. Cross-encoder reranker (bge-reranker-base) cũng thuộc loại này.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Trong project này</strong>
+        gpt-oss-120b (answer generation), bge-reranker-base (cross-encoder scoring), nv-embedqa-e5-v5 (embedding)
+      </div>
+      <div class="detail-block">
+        <strong>Hạn chế</strong>
+        Không biết nội dung tài liệu cụ thể của user. Có thể hallucinate khi được hỏi về nội dung không có trong training data. RAG giải quyết điều này.
+      </div>
+    </div>
+    <div class="tags">
+      <span class="tag">Model weights</span>
+      <span class="tag">Static / Read-only</span>
+      <span class="tag">gpt-oss-120b</span>
+      <span class="tag">bge-reranker-base</span>
+    </div>
+  </div>
+
+  <!-- 2. Long-term External Memory -->
+  <div class="card" style="border-left-color:#1e88e5">
+    <div class="card-header">
+      <div class="card-icon">🗄️</div>
+      <div>
+        <div class="card-title">② Long-term External Memory</div>
+        <div class="card-subtitle">Qdrant Vector Store — kiến thức tài liệu, persistent trên disk</div>
+      </div>
+    </div>
+    <p>Là "bộ nhớ dài hạn" của hệ thống — nơi lưu toàn bộ kiến thức từ tài liệu PDF sau khi ingest. Mỗi chunk được embed thành vector 1024 chiều và lưu kèm payload (text, page, doc_id). Tìm kiếm qua HNSW index với cosine similarity, filter theo <code>document_id</code>.</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Ghi (Write)</strong>
+        Khi ingest PDF: chunk → embed → upsert vào Qdrant. Persistent trên disk tại <code>./storage/qdrant/</code>.
+      </div>
+      <div class="detail-block">
+        <strong>Đọc (Read)</strong>
+        Mỗi query: embed query → ANN search → trả về top-K chunks có score cao nhất.
+      </div>
+    </div>
+    <div class="code">
+<span class="cmt"># Payload mỗi vector point trong Qdrant</span>
+{
+  <span class="str">"document_id"</span>: <span class="str">"4f248366-..."</span>,
+  <span class="str">"content"</span>:     <span class="str">"FastAPI is a modern..."</span>,
+  <span class="str">"page"</span>:         <span class="num">3</span>,
+  <span class="str">"type"</span>:         <span class="str">"text"</span>,   <span class="cmt"># hoặc "image"</span>
+  <span class="str">"chunk_id"</span>:     <span class="str">"..."</span>
+}
+    </div>
+    <div class="tags">
+      <span class="tag">Qdrant</span>
+      <span class="tag">HNSW index</span>
+      <span class="tag">Persistent on disk</span>
+      <span class="tag">Read + Write</span>
+      <span class="tag">Semantic memory</span>
+    </div>
+  </div>
+
+  <!-- 3. Working Memory -->
+  <div class="card" style="border-left-color:#e53935">
+    <div class="card-header">
+      <div class="card-icon">⚡</div>
+      <div>
+        <div class="card-title">③ Working Memory</div>
+        <div class="card-subtitle">BM25 Index — ephemeral, rebuilt per-request từ chunks đã load</div>
+      </div>
+    </div>
+    <p>BM25 index được xây dựng <strong>mỗi lần query</strong> từ danh sách chunks tải từ disk — không persist, không cache giữa requests. Là "bộ nhớ tạm" giữ term-frequency statistics trong lúc search, sau đó giải phóng. Nhanh vì corpus nhỏ (vài trăm chunks mỗi tài liệu).</p>
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Tại sao không cache BM25?</strong>
+        BM25 index gắn với corpus. Nếu tài liệu thay đổi (re-ingest), index cũ sẽ stale. Rebuild mỗi request đảm bảo luôn đúng.
+      </div>
+      <div class="detail-block">
+        <strong>Trade-off</strong>
+        Tốn ~10–50ms mỗi request để build index. Chấp nhận được ở document scale nhỏ (~vài trăm chunks). Ở scale lớn cần cache layer.
+      </div>
+    </div>
+    <div class="code">
+<span class="cmt"># Mỗi request: load → build → search → discard</span>
+chunks = load_chunks(document_id)          <span class="cmt"># từ disk</span>
+bm25 = BM25Okapi([c[<span class="str">"text"</span>].split() <span class="kw">for</span> c <span class="kw">in</span> chunks])
+scores = bm25.get_scores(query.split())    <span class="cmt"># working mem</span>
+<span class="cmt"># sau khi return → GC giải phóng bm25 object</span>
+    </div>
+    <div class="tags">
+      <span class="tag">BM25Okapi</span>
+      <span class="tag">Ephemeral / Per-request</span>
+      <span class="tag">Keyword statistics</span>
+      <span class="tag">No persistence</span>
+    </div>
+  </div>
+
+  <!-- 4. Short-term / Context Window Memory -->
+  <div class="card" style="border-left-color:#00897b">
+    <div class="card-header">
+      <div class="card-icon">💬</div>
+      <div>
+        <div class="card-title">④ Short-term Memory — LLM Context Window</div>
+        <div class="card-subtitle">Assembled prompt: System + Retrieved chunks + Chat history + Query</div>
+      </div>
+    </div>
+    <p>Đây là "bộ nhớ tức thời" được lắp ráp mỗi request và gửi vào context window của LLM. Bao gồm 4 thành phần theo thứ tự: system prompt, retrieved chunks (từ long-term memory), lịch sử chat, và câu hỏi hiện tại của user.</p>
+
+    <div style="margin:14px 0;background:#f8fffe;border-radius:8px;border:1px solid #b2dfdb;overflow:hidden">
+      <div style="display:grid;grid-template-columns:auto 1fr;font-size:12px">
+        <div style="background:#e0f2f1;padding:8px 14px;font-weight:700;color:#00695c;border-bottom:1px solid #b2dfdb">System Prompt</div>
+        <div style="padding:8px 14px;color:#37474f;border-bottom:1px solid #b2dfdb">"Answer only from the context. Cite page numbers. If insufficient, say so."</div>
+        <div style="background:#e0f2f1;padding:8px 14px;font-weight:700;color:#00695c;border-bottom:1px solid #b2dfdb">Retrieved Context</div>
+        <div style="padding:8px 14px;color:#37474f;border-bottom:1px solid #b2dfdb">Top-5 chunks từ Qdrant + reranker. Nguồn: long-term external memory.</div>
+        <div style="background:#e0f2f1;padding:8px 14px;font-weight:700;color:#00695c;border-bottom:1px solid #b2dfdb">Chat History</div>
+        <div style="padding:8px 14px;color:#37474f;border-bottom:1px solid #b2dfdb">N turns gần nhất. Giữ trong React state (frontend). Không lưu DB — mất khi reload.</div>
+        <div style="background:#e0f2f1;padding:8px 14px;font-weight:700;color:#00695c">User Query</div>
+        <div style="padding:8px 14px;color:#37474f">Câu hỏi hiện tại.</div>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-block">
+        <strong>Giới hạn context window</strong>
+        LLM có context limit (vd 128K tokens). Cần chọn K chunks phù hợp — quá nhiều tốn token, quá ít thiếu context. Reranker giúp chọn đúng.
+      </div>
+      <div class="detail-block">
+        <strong>Chat history hiện tại</strong>
+        Project lưu history trong React state — ephemeral (mất khi reload). Không có persistent chat DB. Đây là điểm có thể cải thiện.
+      </div>
+    </div>
+    <div class="tags">
+      <span class="tag">Context window</span>
+      <span class="tag">Ephemeral per-request</span>
+      <span class="tag">Chat history (React state)</span>
+      <span class="tag">Prompt assembly</span>
+    </div>
+  </div>
+
+  <!-- Memory comparison table -->
+  <div class="card" style="border-left-color:#5c6bc0">
+    <div class="card-header">
+      <div class="card-icon">📋</div>
+      <div>
+        <div class="card-title">So sánh 4 loại Memory</div>
+        <div class="card-subtitle">Persistence · Capacity · Latency · Use case</div>
+      </div>
+    </div>
+    <table class="score-table">
+      <thead>
+        <tr><th>Loại</th><th>Persistence</th><th>Dung lượng</th><th>Latency</th><th>Cập nhật</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Parametric</strong><br><span style="font-size:11px;color:#9e9e9e">Model weights</span></td>
+          <td>Vĩnh viễn (in weights)</td>
+          <td>Tỉ params</td>
+          <td>0 (inference only)</td>
+          <td>Re-training</td>
+        </tr>
+        <tr>
+          <td><strong>Long-term External</strong><br><span style="font-size:11px;color:#9e9e9e">Qdrant</span></td>
+          <td>Persistent (disk)</td>
+          <td>Hàng triệu vectors</td>
+          <td>~10–50ms (ANN)</td>
+          <td>Ingest PDF</td>
+        </tr>
+        <tr>
+          <td><strong>Working</strong><br><span style="font-size:11px;color:#9e9e9e">BM25 index</span></td>
+          <td>Ephemeral (per-request)</td>
+          <td>Vài trăm chunks</td>
+          <td>~10–50ms (build)</td>
+          <td>Tự động mỗi request</td>
+        </tr>
+        <tr>
+          <td><strong>Short-term</strong><br><span style="font-size:11px;color:#9e9e9e">Context window</span></td>
+          <td>Ephemeral (per-request)</td>
+          <td>128K tokens</td>
+          <td>0 (assembly)</td>
+          <td>Mỗi request</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ===== TECH STACK ===== -->
+  <div class="phase-header">
+    <div class="phase-dot" style="background:#1976d2"></div>
+    <h2>Tech Stack</h2>
+    <div class="phase-line"></div>
+  </div>
+
+  <div class="card" style="border-left-color:#1976d2">
+    <table class="score-table">
+      <thead>
+        <tr><th>Layer</th><th>Công nghệ</th><th>Vai trò</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Backend</td><td>FastAPI + Uvicorn</td><td>REST API + SSE streaming</td></tr>
+        <tr><td>Frontend</td><td>React + Vite + TypeScript</td><td>Chat UI + Debug panel</td></tr>
+        <tr><td>PDF Parsing</td><td>PyMuPDF</td><td>Extract text blocks, images</td></tr>
+        <tr><td>Sentence split</td><td>NLTK sent_tokenize</td><td>Chia block thành câu</td></tr>
+        <tr><td>Embedding</td><td>NVIDIA NIM nv-embedqa-e5-v5</td><td>Text → vector 1024-dim</td></tr>
+        <tr><td>Vector DB</td><td>Qdrant (local file)</td><td>Lưu & search vector</td></tr>
+        <tr><td>Keyword search</td><td>BM25 (rank_bm25)</td><td>Sparse retrieval</td></tr>
+        <tr><td>Fusion</td><td>RRF</td><td>Merge ranked lists</td></tr>
+        <tr><td>Reranker</td><td>BAAI/bge-reranker-base</td><td>Cross-encoder reranking</td></tr>
+        <tr><td>LLM</td><td>NVIDIA NIM gpt-oss-120b</td><td>Generate answer</td></tr>
+        <tr><td>Evaluation</td><td>RAGAS 0.1.21</td><td>Faithfulness, relevancy, precision, recall</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    RAG PDF Project &nbsp;·&nbsp; AIO 2026
+  </div>
+
+</div>
+</body>
+</html>

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.services.llm.providers import get_llm_provider
-from app.services.retrieval import retrieve
+from app.services.retrieval import retrieve_debug
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,8 @@ class HistoryMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    document_id: str
+    document_id: str | None = None
+    project_id: str | None = None
     history: list[HistoryMessage] = []
 
 
@@ -112,6 +113,21 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _build_retrieval_query(query: str, history: list[HistoryMessage]) -> str:
+    """History-aware retrieval: short follow-up messages (e.g. 'answer in Vietnamese',
+    'explain more') don't contain enough keywords to retrieve relevant context.
+    Combine with the last user question so retrieval stays on-topic."""
+    if not history:
+        return query
+    word_count = len(query.strip().split())
+    if word_count >= 8:
+        return query
+    last_user = next((h.content for h in reversed(history) if h.role == "user"), None)
+    if last_user:
+        return f"{last_user} {query}"
+    return query
+
+
 def _image_to_data_url(image_path: str) -> str | None:
     path = Path(image_path)
     if not path.exists():
@@ -177,10 +193,23 @@ def _build_messages(
 # SSE generator
 # ---------------------------------------------------------------------------
 
+async def _resolve_document_ids(project_id: str) -> list[str]:
+    """Fetch document IDs belonging to a project (async DB query)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.project import ProjectDocument
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(ProjectDocument.document_id).where(ProjectDocument.project_id == project_id)
+        )
+        return list(result.scalars().all())
+
+
 async def _sse_stream(
     query: str,
     history: list[HistoryMessage],
-    document_id: str,
+    document_id: str | None,
+    document_ids: list[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """SSE event sequence:
         data: {"delta": "<token>"}   — one per LLM token
@@ -188,13 +217,25 @@ async def _sse_stream(
         data: [DONE]
     """
     try:
-        context = retrieve(query, document_id=document_id)
+        retrieval_query = _build_retrieval_query(query, history)
+        context, debug_info = retrieve_debug(
+            retrieval_query,
+            document_id=document_id,
+            document_ids=document_ids,
+        )
+
+        # Emit pipeline debug data before streaming tokens
+        yield f"data: {json.dumps({'debug': debug_info}, ensure_ascii=False)}\n\n"
+
+        # LLM receives the original query + history; retrieval used the enriched query
         messages = _build_messages(query, history, context)
 
         provider = get_llm_provider()
         stream = provider.chat(messages, stream=True)
 
         for chunk in stream:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
             token = getattr(delta, "content", None)
             if token:
@@ -223,14 +264,23 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     """
     Stream a chat response for *req.message* using retrieved document context.
 
+    Accepts either document_id (single doc) or project_id (multi-doc project).
     Returns Server-Sent Events (text/event-stream).
-    Each event: `data: {"delta": "<text>"}` or `data: [DONE]`.
     """
+    if not req.document_id and not req.project_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Either document_id or project_id is required")
+
+    # Resolve project → list of document IDs
+    document_ids: list[str] | None = None
+    if req.project_id:
+        document_ids = await _resolve_document_ids(req.project_id)
+
     return StreamingResponse(
-        _sse_stream(req.message, req.history, req.document_id),
+        _sse_stream(req.message, req.history, req.document_id, document_ids),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # disable nginx buffering if behind nginx
+            "X-Accel-Buffering": "no",
         },
     )

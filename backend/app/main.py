@@ -10,9 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.core.database import init_db
 from app.models import document as _document_models  # noqa: F401 — registers ORM metadata
+from app.models import project as _project_models    # noqa: F401 — registers ORM metadata
 from app.routers import health
 from app.routers import documents
 from app.routers import chat
+from app.routers import eval_router
+from app.routers import projects
 from app.services.vector_store import ensure_collection
 
 logging.basicConfig(
@@ -51,6 +54,8 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 app.include_router(health.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(eval_router.router)
+app.include_router(projects.router)
 
 # Serve extracted images as static files so frontend can display thumbnails.
 # URL pattern: /static/images/{document_id}/p{page}_{idx}.{ext}

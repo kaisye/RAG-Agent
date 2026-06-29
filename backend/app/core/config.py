@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-base"  # local CrossEncoder model
     chat_supports_vision: bool = False   # set True only when using a vision-capable chat model
 
+    # Query Transformations
+    hyde_enabled: bool = False           # HyDE: embed a LLM-generated hypothetical doc instead of raw query
+    query_decomposition_enabled: bool = False  # break complex queries into N sub-queries then merge
+    query_decomposition_n: int = 3       # number of sub-queries to generate
+
     # Storage
     upload_dir: str = "storage/uploads"
     static_dir: str = "storage/static"
