@@ -13,7 +13,7 @@ export interface HistoryTurn {
 interface ChatOptions {
   documentId?: string
   projectId?: string
-  maxHistoryTurns?: number   // 0 = unlimited (default)
+  maxHistoryTurns?: number
 }
 
 export function useChat({ documentId, projectId, maxHistoryTurns = 0 }: ChatOptions) {
@@ -35,7 +35,6 @@ export function useChat({ documentId, projectId, maxHistoryTurns = 0 }: ChatOpti
     setStreaming(true)
 
     const allHistory = messages.map(m => ({ role: m.role, content: m.content }))
-    // Slice to maxHistoryTurns pairs (1 pair = 1 user + 1 assistant msg = 2 items)
     const history = maxHistoryTurns > 0
       ? allHistory.slice(-(maxHistoryTurns * 2))
       : allHistory
@@ -84,7 +83,6 @@ export function useChat({ documentId, projectId, maxHistoryTurns = 0 }: ChatOpti
             }
 
             if (parsed.delta) {
-              // Append streaming token
               setMessages(prev =>
                 prev.map(m =>
                   m.id === assistantId

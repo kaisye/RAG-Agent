@@ -1,5 +1,4 @@
 import logging
-
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -9,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.models import document as _document_models  # noqa: F401 — registers ORM metadata
-from app.models import project as _project_models    # noqa: F401 — registers ORM metadata
+from app.models import document as _document_models  # noqa: F401
+from app.models import project as _project_models    # noqa: F401
 from app.routers import health
 from app.routers import documents
 from app.routers import chat
@@ -30,8 +29,16 @@ app = FastAPI(title=settings.app_name, debug=settings.debug)
 @app.on_event("startup")
 async def on_startup() -> None:
     await init_db()
-    ensure_collection()
-    logger.info("Qdrant collection '%s' ready", settings.qdrant_collection)
+    try:
+        ensure_collection()
+        logger.info("Qdrant collection '%s' ready", settings.qdrant_collection)
+    except Exception as exc:
+        logger.warning("Qdrant not available at startup (will retry on first request): %s", exc)
+
+    # Ensure ChromaDB storage dirs exist
+    for d in (settings.upload_dir, settings.images_dir, settings.markdown_dir, settings.chroma_persist_dir):
+        Path(d).mkdir(parents=True, exist_ok=True)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,15 +59,19 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 
 app.include_router(health.router)
-app.include_router(documents.router)
+app.include_router(documents.router, prefix="/documents", tags=["documents"])
 app.include_router(chat.router)
 app.include_router(eval_router.router)
 app.include_router(projects.router)
 
-# Serve extracted images as static files so frontend can display thumbnails.
-# URL pattern: /static/images/{document_id}/p{page}_{idx}.{ext}
+# Serve extracted images as static files
 _images_dir = Path(settings.upload_dir).parent / "images"
 _images_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static/images", StaticFiles(directory=str(_images_dir)), name="static_images")
+
+# Serve storage/ for ChromaDB-based pipeline (markdown, chunks, etc.)
+_storage_dir = Path("storage")
+_storage_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_storage_dir)), name="static")
 
 logger.info("Application started — %s", settings.app_name)

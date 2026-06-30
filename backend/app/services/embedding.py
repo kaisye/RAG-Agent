@@ -22,7 +22,7 @@ def _get_embed_client() -> OpenAI:
 
 
 # ---------------------------------------------------------------------------
-# Text embedding
+# Text embedding — module-level functions (used by retrieval.py / chat pipeline)
 # ---------------------------------------------------------------------------
 
 def embed_texts(
@@ -32,30 +32,17 @@ def embed_texts(
     """
     Embed a list of texts using the NVIDIA NIM embeddings endpoint.
 
-    Returns a list of float vectors in the same order as *texts*.
-    Automatically batches to avoid rate limits and retries on HTTP 429.
+    embed_texts(chunks, input_type="passage")  — at ingest time
+    embed_texts([query], input_type="query")   — at search time
     """
     if not texts:
         return []
 
-    # Safety truncation against the model's 512 subword-token hard limit.
-    #
-    # Character-per-token ratios vary widely by language:
-    #   English academic  ≈ 4 chars/token
-    #   Vietnamese        ≈ 1.5 chars/token  ← drives this limit
-    #   Chinese/Japanese  ≈ 1–2 chars/token
-    #
-    # Worst-observed error: 960 tokens from a Vietnamese text ≤ 1400 chars
-    # (1400 / 960 ≈ 1.46 chars/token).  To stay safely under 512 tokens for
-    # any language: 512 × 1.4 chars/token ≈ 717 chars → use 600 chars.
     _CHAR_LIMIT = 600
     sanitized: list[str] = []
     for t in texts:
         if len(t) > _CHAR_LIMIT:
-            logger.warning(
-                "embed_texts: truncating text from %d to %d chars (multilingual safety)",
-                len(t), _CHAR_LIMIT,
-            )
+            logger.warning("embed_texts: truncating text from %d to %d chars", len(t), _CHAR_LIMIT)
             t = t[:_CHAR_LIMIT].rsplit(" ", 1)[0] or t[:_CHAR_LIMIT]
         sanitized.append(t)
     texts = sanitized
@@ -65,12 +52,7 @@ def embed_texts(
     batch_size = settings.nvidia_embed_batch_size
 
     all_vectors: list[list[float]] = []
-    batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
-
-    logger.info(
-        "embed_texts: %d texts in %d batch(es), model=%s, input_type=%s",
-        len(texts), len(batches), model, input_type,
-    )
+    batches = [texts[i: i + batch_size] for i in range(0, len(texts), batch_size)]
 
     for batch_idx, batch in enumerate(batches):
         def _call(b=batch):
@@ -87,7 +69,6 @@ def embed_texts(
         if batch_idx < len(batches) - 1:
             time.sleep(0.5)
 
-    logger.info("embed_texts: done — dimension=%d", len(all_vectors[0]) if all_vectors else 0)
     return all_vectors
 
 
@@ -96,7 +77,6 @@ def embed_texts(
 # ---------------------------------------------------------------------------
 
 def _image_to_data_url(image_path: str) -> str:
-    """Read an image file and return a base64 data URL."""
     path = Path(image_path)
     ext = path.suffix.lstrip(".").lower()
     mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}.get(ext, "image/png")
@@ -105,7 +85,6 @@ def _image_to_data_url(image_path: str) -> str:
 
 
 def _embed_image_direct(client: OpenAI, data_url: str) -> list[float]:
-    """Call multimodal embedding model with modality='image'."""
     response = call_with_retry(
         lambda: client.embeddings.create(
             input=[data_url],
@@ -117,12 +96,7 @@ def _embed_image_direct(client: OpenAI, data_url: str) -> list[float]:
 
 
 def _caption_then_embed(data_url: str) -> list[float]:
-    """
-    Fallback: generate a caption via vision LLM, then embed the caption as text.
-    Used when the multimodal embedding model is unavailable.
-    """
-    from openai import OpenAI as _OpenAI  # local import to avoid circular on module load
-
+    from openai import OpenAI as _OpenAI
     vision_client = _OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=settings.nvidia_api_key,
@@ -149,17 +123,7 @@ def _caption_then_embed(data_url: str) -> list[float]:
 
 
 def embed_image(image_path: str) -> list[float]:
-    """
-    Embed a single image file and return a float vector.
-
-    Strategy:
-      1. Try the dedicated multimodal embedding model (modality='image').
-      2. On any error (model unavailable, quota exceeded, etc.), fall back to
-         generating a text caption via a vision LLM and embedding that caption.
-
-    The returned vector has the same dimension as text vectors so that images
-    and text chunks can coexist in the same Qdrant collection.
-    """
+    """Embed a single image. Falls back to caption if multimodal model unavailable."""
     client = _get_embed_client()
     data_url = _image_to_data_url(image_path)
 
@@ -169,9 +133,46 @@ def embed_image(image_path: str) -> list[float]:
             logger.debug("embed_image: direct multimodal OK — %s dim=%d", image_path, len(vector))
             return vector
         except Exception as e:
-            logger.warning(
-                "embed_image: multimodal model failed (%s), switching to caption fallback", e
-            )
+            logger.warning("embed_image: multimodal model failed (%s), using caption fallback", e)
 
-    logger.info("embed_image: using caption fallback for %s", image_path)
     return _caption_then_embed(data_url)
+
+
+# ---------------------------------------------------------------------------
+# EmbeddingService class (used by RAGPipeline / flashcard-generator pipeline)
+# ---------------------------------------------------------------------------
+
+class EmbeddingService:
+    """Class-based wrapper used by RAGPipeline for ChromaDB-based retrieval."""
+
+    def __init__(self):
+        cfg = settings
+        self.model = cfg.nvidia_embed_model
+        self.client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=cfg.nvidia_api_key,
+        )
+
+    def embed_texts(
+        self,
+        texts: list[str],
+        input_type: str,
+        batch_size: int = 50,
+    ) -> list[list[float]]:
+        if input_type not in ("passage", "query"):
+            raise ValueError(f"input_type must be 'passage' or 'query', got: {input_type!r}")
+
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i: i + batch_size]
+            logger.debug("Embedding batch %d-%d (%s)", i, i + len(batch) - 1, input_type)
+            response = call_with_retry(
+                lambda b=batch: self.client.embeddings.create(
+                    input=b,
+                    model=self.model,
+                    extra_body={"input_type": input_type, "truncate": "END"},
+                    encoding_format="float",
+                )
+            )
+            all_embeddings.extend(e.embedding for e in response.data)
+        return all_embeddings

@@ -46,7 +46,6 @@ def _source_path_to_url(source_path: str) -> str:
     storage/images/{doc_id}/p{page}_{idx}.{ext}
       →  /static/images/{doc_id}/p{page}_{idx}.{ext}
     """
-    # Normalise separators, then strip everything up to and including "images/"
     normalised = source_path.replace("\\", "/")
     marker = "images/"
     idx = normalised.find(marker)
@@ -56,15 +55,7 @@ def _source_path_to_url(source_path: str) -> str:
 
 
 def _build_citations(context_chunks: list[dict]) -> list[dict]:
-    """Turn retrieve() results into structured citation objects.
-
-    Returns a list where each item is one of:
-      {"type": "text",  "document_id": ..., "page": ..., "snippet": "..."}
-      {"type": "image", "document_id": ..., "page": ..., "thumbnail_url": "..."}
-
-    Deduplication: text citations are keyed by (document_id, page); image
-    citations are keyed by source_path so the same image doesn't appear twice.
-    """
+    """Turn retrieve() results into structured citation objects."""
     seen_text: set[tuple] = set()
     seen_image: set[str] = set()
     citations: list[dict] = []
@@ -149,18 +140,13 @@ def _build_messages(
     Structure:
       1. system prompt
       2. prior conversation history (unchanged)
-      3. user message with:
-         a. retrieved text chunks as a context block
-         b. images (base64) if vision is enabled and chunks have image type
+      3. user message with retrieved text chunks + images (if vision-capable)
     """
-    # --- system ---
     messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
 
-    # --- history ---
     for turn in history:
         messages.append({"role": turn.role, "content": turn.content})
 
-    # --- context block ---
     text_parts = []
     image_data_urls: list[str] = []
 
@@ -224,7 +210,6 @@ async def _sse_stream(
             document_ids=document_ids,
         )
 
-        # Emit pipeline debug data before streaming tokens
         yield f"data: {json.dumps({'debug': debug_info}, ensure_ascii=False)}\n\n"
 
         # LLM receives the original query + history; retrieval used the enriched query
@@ -242,7 +227,6 @@ async def _sse_stream(
                 payload = json.dumps({"delta": token}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
 
-        # Send citations after the full answer is streamed
         citations = _build_citations(context)
         yield f"data: {json.dumps({'citations': citations}, ensure_ascii=False)}\n\n"
 
@@ -271,7 +255,6 @@ async def chat(req: ChatRequest) -> StreamingResponse:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Either document_id or project_id is required")
 
-    # Resolve project → list of document IDs
     document_ids: list[str] | None = None
     if req.project_id:
         document_ids = await _resolve_document_ids(req.project_id)

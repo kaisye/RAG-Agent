@@ -9,13 +9,16 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
-        // Remove Accept-Encoding so the backend sends uncompressed plain chunks.
-        // Without this, http-proxy may buffer gzip-compressed SSE until flush.
+        // Remove Accept-Encoding so the backend sends uncompressed plain SSE chunks.
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
             proxyReq.removeHeader('Accept-Encoding')
           })
         },
+      },
+      '/static': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       },
     },
   },
